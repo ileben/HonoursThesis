@@ -15,7 +15,8 @@
 \usepackage{subfigure}
 \usepackage{verbatim}
 \usepackage{moreverb}
-\usepackage{listings}
+
+\newenvironment {code}{\footnotesize}{\normalsize}
 
 \begin{document}
 
@@ -169,17 +170,23 @@ More importantly, new programming interfaces have emerged that expose the GPU ha
 
 \subsection{Recent Advances in GPU Architecture}
 
-new programmable stages
-
-fast memory cache
-
-atomic operations
-
+new programmable stages,
+fast memory cache,
+atomic operations,
 memory writes to arbitrary location
 
 \section {Previous Work}
 
-In a typical CPU implementation of a vector graphics renderer, every spline is first approximated by linear segments. Intermediate points on the curved segments can be obtained in a straightforward manner by curve evaluation at a fixed step. Alternatively, the process can be optimised via adaptive algorithms which generate less points in the straight regions and more points in the regions of higher curvature. Common approaches include forward difference evaluation and recursive subdivision based on de Casteljau algorithm.  The interior of the resulting piecewise linear polygon is triangulated according to the fill-rule applied to the shape. Finally, the triangles are rasterized into the framebuffer.
+\begin {figure} [ht]
+	\centering
+	\subfigure[Subdivision]{\label{fig:DeCasteljau}\includegraphics [width=0.3\columnwidth] {figures/DeCasteljau}}
+	\hspace{2.0cm}
+	\subfigure[Tesselation]{\label{fig:tesselation}\includegraphics [width=0.3\columnwidth] {figures/tesselation}}
+	\caption {Traditional CPU renderer subdivides curves into straight line segments and then tesselates the shape interior into triangles.}
+	\label {fig:cpu}
+\end {figure}
+
+In a typical CPU implementation of a vector graphics renderer, every spline is first approximated by linear segments. Intermediate points on the curved segments can be obtained in a straightforward manner by curve evaluation at a fixed step. Alternatively, the process can be optimised via adaptive algorithms which generate less points in the straight regions and more points in the regions of higher curvature. Common approaches include forward difference evaluation and recursive subdivision based on de Casteljau algorithm. The interior of the resulting piecewise linear polygon is triangulated according to the fill-rule applied to the shape. Finally, the triangles are rasterized into the framebuffer. Figure~\ref{fig:cpu} illustrates the process of subdivision and tesselation.
 
 Unfortunately, the known curve subdivision and polygon triangulation algorithms are expensive in terms of required processing time compared to the final rendering of the image. Moreover, they are inherently sequential, which means they cannot be efficiently parallelised and therefore cannot take advantage of the GPU.
 
@@ -188,6 +195,20 @@ Unfortunately, the known curve subdivision and polygon triangulation algorithms 
 \cite{LoopBlinn05} have developed an approach where the implicit equation of quadratic curves is evaluated directly in the fragment shader to perform inside/outside classification. They start by observing that ``the implicit form of any rational parametric quadratic curve is a conic section; and that any conic section is the projected image of a single canonical parabola." They show that a quadratic curve with control points $(0,0)$, $(0.5,0)$, and $(1,1)$ plots the quadratic curve $v = u^2$ exactly. They assign these points as the $(u,v)$ texture coordinates to the vertices of a triangle. Suppose the vertices are the control points of another arbitrary quadratic curve. As the hardware interpolates the texture coordinates across the triangle, it essentially projects the quadratic curve from texture space into screen space. They determine if the pixel is inside or outside the curve by evaluating $f(u,v) = u^2 - v$ in a pixel shader program. If $f(u,v) < 0$ then the pixel is inside the curve, otherwise it is outside.
 
 This removes the need for curve subdivision, but the interior of the shape still needs to be triangulated. \cite{Kokojima06} combine the projective rendering of the quadratic curves with a stencil polygon rendering technique. First, an arbitrary pivot point is selected. For each linear segment a triangle is drawn with one of its vertices at the pivot point and the other two at the vertices of the line segment. For each quadratic segment a triangle is drawn between the pivot point and the first and the last control point, skipping the middle control point. Additionally, a triangle is drawn for each quadratic curve, discarding the pixels based on the projective technique of \cite{LoopBlinn05}. For every pixel drawn, the binary value in the stencil buffer is inverted. After all the triangles have been drawn, the values in the stencil buffer essentially represent the crossing number for every point as if the intersection ray was cast towards the pivot point. This allows the pixels in the framebuffer to be coloured according to even-odd fill rule.
+
+\begin {figure}
+	\centering
+	\includegraphics [width=0.5\columnwidth] {figures/loop_blinn}
+	\caption {A quadratic curve is projected from texture space into screen space via coordinate interpolation.}
+	\label {fig:loop_blinn}
+\end {figure}
+
+\begin {figure}
+	\centering
+	\includegraphics [width=0.5\columnwidth] {figures/kokojima}
+	\caption {Stencil-buffer rendering technique based on Jordan Curve theorem avoids the need for triangulation of shape interior.}
+	\label {fig:kokojima}
+\end {figure}
 
 \subsection {Random access rendering by image localisation}
 
@@ -290,7 +311,7 @@ Stream index $P$ of the previous node in the list
 \end {enumerate}
 
 The node insertion algorithm is as follows:
-\begin{verbatimtab}
+\begin{verbatimtab}[3]
 	I = atomicAdd( L, S )
 	P = atomicSwap( H, I )
 	stream[ I ] = nodeType
@@ -311,7 +332,7 @@ The segment encoding pass uses atomic counter $H$ in the sub-grid of the object 
 
 The final back-to-front sorting pass iterates through the object header linked list for every cell and sorts the contents of the nodes based on the index of the object in the vector image.
 
-\begin {figure}
+\begin {figure} 
 	\centering
 	\includegraphics[width=0.6\columnwidth] {figures/obj_stream}
 	\caption {The stream buffer contains interleaved nodes of multiple linked lists. Each linked list contains segments of one particular object intersecting one particular grid cell.}
@@ -325,8 +346,9 @@ Parallelism in our implementation is achieved by distributing the processing of 
 The first level of parallelism is achieved with the vertex shaders, where multiple control points are processed simultaneously. The second level of parallelism is achieved with the geometry shaders, where additional processing such as bounding box computation can be applied to multiple segments simultaneously. The third and final level of parallelism is achieved with the fragment shaders, where processing can be applied to multiple grid cells simultaneously.
 
 A coarse description of our encoding algorithm is given in pseudocode below, excluding the details that differ between the auxiliary-segment and pivot-point representations:
-\def\verbatimtabsize{3\relax} 
-\begin {verbatimtab}
+
+\begin {code}
+\begin {verbatimtab}[3]
 
 init stream length counter to 0
 
@@ -380,27 +402,34 @@ loop
 
 [Sync memory]
 \end {verbatimtab}
+\end {code}
 
 Note that due to the previously described parallelisms the steps of the loops actually run in parallel. Each top-level for loop is a separate rendering pass. The passes of the form
-\begin {verbatim}
+\begin{code}
+\begin {verbatimtab}[3]
 for (every main grid cell)
-\end {verbatim}
+\end {verbatimtab}
+\end{code}
 
 are implemented as drawing of a rectangle over the entire main grid. The transformation matrices are set so as to match the size of a covered pixel to the size of one grid cell. This gives us $M x N$ invocations of the fragment shader, where $M x N$ is the size of the main grid. Per-cell processing is implemented in the fragment shader so that each invocation of the shader computes the results for its respective cell. The passes of the form
-\begin {verbatimtab}
+\begin{code}
+\begin {verbatimtab}[3]
 for (every line\quad segment)
 	for (every object grid cell in bbox)
 	loop
 loop
 \end {verbatimtab}
+\end{code}
 
 start off as drawing of a line or triangle primitive. The geometry shader takes in two or three control points defining the segment and computes their bounding box by combining their minimum and maximum coordinates in each dimension. The minimum coordinates are rounded down and the maximum coordinates are rounded up to the nearest grid cell. The geometry shader then discards the line or triangle primitive and emits a rectangle covering the cells within the bounding box. Again, this results in an invocation of a fragment shader for every cell that is potentially intersected by the line or quadratic segment. The passes of the form
-\begin {verbatimtab}
+\begin{code}
+\begin {verbatimtab}[3]
 for (every object)
 	for (every object grid cell in bbox)
 	loop
 loop
 \end {verbatimtab}
+\end{code}
 
 are initiated as drawing of line segments extending from the minimum to the maximum point of the object bounding box rounded to the nearest grid cell. These coordinates are precomputed in the setup stage, since they are required to format the grid memory pool. Same as in the other two cases above, the geometry shader simply discards the line segments and emits a rectangle matching the bounding box instead.
 
