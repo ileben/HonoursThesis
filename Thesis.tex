@@ -160,14 +160,37 @@ Obviously, the winding number at any point depends on the geometry of the entire
 
 \subsection{Traditional Graphics Pipeline}
 
-Traditional display devices require input in the form of a grid of colour values, called a \emph{raster}. A colour value in a raster is called a \emph{pixel}. For a graphical object to be displayed, the pixels covered by its shape need to be determined in a process called \emph{rasterisation} and the colour values in the display raster changed accordingly. The architecture of modern GPUs is optimised for rasterisation of three types of primitives: points, lines and triangles. The roots of this design reach into the early history of computer graphics when parallel computing architecture was not as powerful and programmable as today. Triangle rasterisation coupled with texture mapping of raster images was much simpler to implement in hardware compared to direct evaluation of higher order mathematical equations. Thus more complex shapes have to be converted into the basic primitives by tesselation, in order to accommodate and benefit from hardware-accelerated rendering.
+Modern display devices require input in the form of a grid of colour values, called a \emph{raster}. A colour value in a raster is called a \emph{pixel}. For a graphical object to be displayed, the pixels covered by its shape need to be determined in a process called \emph{rasterisation} and the colour values in the display raster changed accordingly. The architecture of modern GPUs is optimised for rasterisation of three types of primitives: points, lines and triangles. The roots of this design reach into the early history of computer graphics when parallel computing architecture was not as powerful and programmable as today. Triangle rasterisation coupled with texture mapping of raster images was much simpler to implement in hardware compared to direct evaluation of higher order mathematical equations. Thus more complex shapes have to be converted into the basic primitives by tesselation, in order to accommodate and benefit from hardware-accelerated rendering.
+
+Figure~\ref{fig:gfx_pipeline} shows how a traditional graphics pipeline processes the data. The input comes in the form of vertices which can carry multiple attributes, such as vertex coordinate, texture coordinate and colour. The pipeline itself also has a set of attributes which represent its state. The state governs the processing of the input data and can be modified by the drawing commands. It includes important processing information, such as the vertex transformation matrix and the type of primitive for the current set of vertices.
+
+The pipeline consists of three stages. The vertex transformation stage applies the transformation matrix defined in the pipeline state to the vertex coordinates. The primitive assembly stage combines the transformed vertices into one of the three basic primitive types, as defined in the pipeline state. The rasterization stage determines the pixels covered by each primitive and computes the interpolated values of the vertex attributes at every pixel. Finally, the resulting colour at each pixel is written into a temporary memory block called \emph{framebuffer}. When the entire image of one frame is constructed, the colour data is copied from the framebuffer into the actual display raster.
+
+\subsection{Texture Lookups}
+
+There are two common ways of determining the final pixel colour. As shown in Figure~\ref{fig:gfx_pipeline}, a colour value can be attached to each vertex as one of its attributes and interpolated across the primitive. Alternatively, every vertex can have a texture coordinate attached. The interpolated texture coordinate at every pixel is used to perform a lookup into a texture image, residing in video memory of the GPU. The lookup applies the colour of the texture at the point of texture coordinate to the pixel and might include some form of filtering to smooth out the colour values of adjacent pixels. This process is illustrated in Figure~\ref{fig:texturing}. A group of textured triangles small enough to approximate a curved surface can give an impression of the texture image being mapped onto an arbitrary surface.
+
+Due to parallel architecture of the rasterization stage, every pixel is processed separately and the order of coordinates in the texture lookups is arbitrary. In order to be usable as a texture an image must offer efficient random access to its data. To this end, raster images have long been used for texturing. If the colour tuples are laid out in row-major order, the following simple equation suffices to compute the memory location of a pixel within the raster data:
+\[ L = Y * W + X \]
+where \emph{(X,Y)} is the texture coordinate and \emph{W} is the width of raster image in pixels. Once the memory location is computed, the texture colour can be read directly from the raster grid and applied to the pixel being textured.
+
+On the other hand, vector images do not offer such a simple and efficient colour lookup. As discussed in previous sections, the colour at an arbitrary coodinate in image space depends on the winding number of that point with regards to every shape in the image. Furthermore, every winding number in turn depends on every segment of the respective shape. In order to use vector images as textures some preprocessing needs to be done, to construct a more efficient lookup structure.
+
+\begin {figure}
+	\centering
+	\includegraphics [width=0.7\columnwidth]{figures/texturing}
+	\caption {The process of texturing maps the texture image onto a curved surface by interpolating the texture coordinate at every vertex across the primitive and performing a lookup at every pixel.}
+	\label {fig:texturing}
+\end {figure}
 
 \subsection{GPU Programmability}
 The GPU has evolved enormously in terms of speed and programmability, however the fundamental approach has not changed much, with the triangle rasterisation unit remaining a core built-in component. Nonetheless, the increase in programmability has enabled new ways of using the GPU.
 
-Firstly, programmers can now write code that defines the behaviour of certain stages of the rendering pipeline as exposed by the graphics APIs such as OpenGL and DirectX. The pipeline is still based around points, lines and triangles being the basic rasterisable primitives, however, custom programs for processing of vertices and pixels can be uploaded onto the hardware. The stage processing the vertices is called a \emph{vertex shader}, while the pixel processing stage is named a \emph{fragment shader}.
+Firstly, programmers can now write code that defines the behaviour of certain stages of the rendering pipeline as exposed by the graphics APIs such as OpenGL and DirectX. The pipeline is still based around points, lines and triangles being the basic rasterizable primitives, however, custom programs for processing of vertices and pixels can be uploaded onto the hardware. Figure~\ref{fig:gl_pipeline} shows the graphics pipeline as presented by the OpenGL API. The programmable stage processing the vertices is called a \emph{vertex shader}, while the pixel processing stage is named a \emph{fragment shader}.
 
-More importantly, new programming interfaces have emerged that expose the GPU hardware as a general-purpose multi-core computing device. APIs such as CUDA and OpenCL allow programmers to supply data and upload the code onto the GPU to process that data by hundreds of processors in parallel. This approach, known as \emph{GPU Computing}, may be completely devoid of any graphics-related paradigms, although often the results of computation are used for graphical purposes or end up being visualised via traditional rendering pipeline.
+The programmable stages can be used to enhance the traditional pipeline by implementing arbitrary transformation of the vertex input or alternative means of computing the output pixel colour. More importantly, they allow the use of GPU processor as a generic processing unit, an approach known as \emph{General Purpose GPU processing} (GPGPU). Arbitrary input data can be encoded into vertices and then decoded and processed by the shading program. The ability to perform texture lookups at any point in a shading program allows arbitrary data encoded into textures to be read directly from the GPU memory. The option to render into the raster of a texture image, rather than the display raster, allows generic output to be encoded and written out as colour values.
+
+Moreover, new programming interfaces such as CUDA and OpenCL have emerged that expose the GPU hardware as a generic multi-core computing device. This approach is known as \emph{GPU Computing}. These APIs  are completely devoid of any graphics-related paradigms, so there is no need to encode the data into graphical entities such as vertices and textures. Nonetheless, the results of the computation are often used for graphical purposes or end up being visualised via traditional rendering pipeline.
 
 \begin {figure}
 	\centering
@@ -176,7 +199,7 @@ More importantly, new programming interfaces have emerged that expose the GPU ha
 	\label {fig:gl_pipeline}
 \end {figure}
 
-\subsection{Recent Advances in GPU Architecture}
+\subsection{Recent Advances in the GPU Architecture}
 
 new programmable stages,
 fast memory cache,
