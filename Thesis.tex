@@ -34,7 +34,7 @@
 \maketitle
 
 \begin{abstract}
-Efficient random access to image data allows texture mapping of images onto curved surfaces to be accelerated by the GPU. This property has traditionally been associated with raster images, while a typical vector image representation cannot be directly interpreted by the established GPU architecture. In order to be accelerated, the vector image data needs to be first changed into a suitable representation. Recent research allowed texture mapping of vector images by taking advantage of the programmable stages of the GPU. However, the new rendering approach introduces an expensive preprocessing step running on the CPU. In this thesis we investigate the techniques to fully accelerate vector image rendering and texture mapping on the GPU, including the preprocessing steps. We present an alternative localised vector image representation and an efficient parallel preprocessing algorithm, suitable to implementation and acceleration on the GPU. Our approach makes use of the recent advances in the GPU architecture to facilitate and improve the gains from parallelism in the encoding algorithm. We analyse the memory requirements and performance of our GPU implementation and compare it to a sequential CPU implementation and the use of traditional raster images.
+Efficient random access to image data allows texture mapping of images onto curved surfaces to be accelerated by the GPU. This property has traditionally been associated with raster images, whereas a typical vector image representation cannot be efficiently interpreted at an arbitrary point by the established graphics pipeline. Recent research has allowed texture mapping of vector images by taking advantage of the programmable stages of the GPU. However, the new rendering approach introduces an expensive preprocessing step running on the CPU. In this thesis we investigate techniques to fully accelerate vector image rendering and texture mapping on the GPU, including the preprocessing steps. We present an alternative localised vector image representation and an efficient parallel encoding algorithm, achieving great performance improvements compared to a sequential CPU implementation and allowing random access rendering of animated vector images, where continuous preprocessing is required.
 \end{abstract}
 
 \newpage
@@ -52,10 +52,8 @@ In contrast, vector graphics use mathematical equations and shapes to describe c
 
 \begin {figure}
 	\centering
-	\subfigure[Vector image]{\includegraphics[width=0.40\columnwidth] {figures/zoom_vector} \label{fig:zoom_vector}}
-	\hspace{1.0cm}
-	\subfigure[Raster image]{\includegraphics[width=0.35\columnwidth] {figures/zoom_raster} \label{fig:zoom_raster}}
-	\caption {Vector images retain sharp colour discontinuities even at large zoom, while raster images suffer from noticeable artifacts.}
+	\includegraphics[width=1.0\columnwidth] {figures/tiger_zoom} \label{fig:tiger_zoom}
+	\caption {Vector image (top row) retains sharp colour discontinuities even at large zoom, while raster image (bottom row) suffers from noticeable artifacts.}
 	\label {fig:zoom}
 \end {figure}
 
@@ -67,7 +65,7 @@ An important thing to consider is the paradigm shift taken by an approach such a
 
 \begin {figure}
 	\centering
-	\includegraphics[width=0.60\columnwidth] {figures/random_access_vector} \label{fig:random_access_vector}
+	\includegraphics[width=0.60\columnwidth] {figures/random_access_vector}
 	\caption {Straightforward approaches to random-access rendering of vector images are inefficient. To find the colour of one textured pixel on the screen, all the segments of the shape need to be processed.}
 	\label {fig:random_access_vector}
 \end {figure}
@@ -96,22 +94,26 @@ A vector image is a set of vector shapes, each defined as an open or closed spli
 
 The interior of the filled shapes is determined according to the value called \emph{winding number}. For any point, the winding number represents the total number of times that the curve travels around the point. Clockwise movement counts as positive whereas anticlockwise movement counts as negative. Figure~\ref{fig:winding} shows examples of points in curves and their respective winding numbers. Note that one shape can consist of multiple contours in which case the winding number is the sum of the individual winding numbers of all the contours.
 
-There are two common rules for determining the interior of a shape based on the winding number, namely \emph{even-odd} and \emph{non-zero}. The former classifies the areas with an odd winding number as interior while the latter considers any area with a winding number different than $0$ to be inside as shown in figure~\ref{fig:fill_rule}.
+There are two common rules for determining the interior of a shape, namely \emph{even-odd} and \emph{non-zero}. The former classifies the areas with an odd winding number as interior while the latter considers any area with a winding number different than $0$ to be inside. Depending on the number of contours and their orientation, a shape might have a different or equal appearance with different fill rules.
 
 \begin {figure}
 	\centering
-	\includegraphics [width=0.3\columnwidth] {figures/winding}
-	\caption {Points in curves and their respective winding numbers.}
+	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/winding1} \label{fig:wind_a}}
+	\hspace{0.5cm}
+	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/winding2} \label{fig:wind_b}} \\
+	\hspace{0.5cm}
+	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/fill_rule_even_odd_1} \label{fig:wind_c}}
+	\hspace{0.5cm}
+	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/fill_rule_non_zero_1} \label{fig:wind_d}}
+	\hspace{0.5cm}
+	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/fill_rule_any_2} \label{fig:wind_e}}
+	\caption
+		{\subref{fig:wind_a} a shape consisting of a single contour
+		\subref{fig:wind_b} a shape consisting of two contours with opposite orientation
+		\subref{fig:wind_c} shape A using even-odd fill rule;
+		\subref{fig:wind_d} shape A using non-zero fill rule;
+		\subref{fig:wind_e} shape B appears the same using both fill rules.}
 	\label {fig:winding}
-\end {figure}
-
-\begin {figure}
-	\centering
-	\subfigure[Even-odd]{\label{fig:fill_rule_even_odd}\includegraphics [width=0.13\columnwidth] {figures/fill_rule_even_odd}}
-	\quad
-	\subfigure[Non-zero]{\label{fig:fill_rule_non_zero}\includegraphics [width=0.13\columnwidth] {figures/fill_rule_non_zero}}
-	\caption {Same shape filled using two different fill rules.}
-	\label {fig:fill_rule}
 \end {figure}
 
 \subsection{Evaluation of Spline Segments}
@@ -230,23 +232,30 @@ Unfortunately, the known curve subdivision and polygon triangulation algorithms 
 
 \cite{LoopBlinn05} have developed an approach where the implicit equation of quadratic curves is evaluated directly in the fragment shader to perform inside/outside classification. They start by observing that ``the implicit form of any rational parametric quadratic curve is a conic section; and that any conic section is the projected image of a single canonical parabola." They show that a quadratic curve with control points $(0,0)$, $(0.5,0)$, and $(1,1)$ plots the quadratic curve $v = u^2$ exactly. They assign these points as the $(u,v)$ texture coordinates to the vertices of a triangle. Suppose the vertices are the control points of another arbitrary quadratic curve. As the hardware interpolates the texture coordinates across the triangle, it essentially projects the quadratic curve from texture space into screen space. They determine if the pixel is inside or outside the curve by evaluating $f(u,v) = u^2 - v$ in a pixel shader program. If $f(u,v) < 0$ then the pixel is inside the curve, otherwise it is outside.
 
-This removes the need for curve subdivision, but the interior of the shape still needs to be triangulated. \cite{Kokojima06} combine the projective rendering of the quadratic curves with a stencil polygon rendering technique. First, an arbitrary pivot point is selected. For each linear segment a triangle is drawn with one of its vertices at the pivot point and the other two at the vertices of the line segment. For each quadratic segment a triangle is drawn between the pivot point and the first and the last control point, skipping the middle control point. Additionally, a triangle is drawn for each quadratic curve, discarding the pixels based on the projective technique of \cite{LoopBlinn05}. For every pixel drawn, the binary value in the stencil buffer is inverted. After all the triangles have been drawn, the values in the stencil buffer essentially represent the crossing number for every point as if the intersection ray was cast towards the pivot point. This allows the pixels in the framebuffer to be coloured according to even-odd fill rule.
-
 \begin {figure}
 	\centering
 	\includegraphics [width=0.5\columnwidth] {figures/loop_blinn}
-	\caption {A quadratic curve is projected from texture space into screen space via coordinate interpolation.}
+	\caption {A quadratic curve is projected from texture space into screen space via coordinate interpolation. (Image source: \cite{LoopBlinn05}) }
 	\label {fig:loop_blinn}
 \end {figure}
 
 \begin {figure}
 	\centering
 	\includegraphics [width=0.5\columnwidth] {figures/kokojima}
-	\caption {Stencil-buffer rendering technique based on Jordan Curve theorem avoids the need for triangulation of shape interior.}
+	\caption {Stencil-buffer rendering technique based on Jordan Curve theorem avoids the need for triangulation of shape interior. (Image source: \cite{Kokojima06}) }
 	\label {fig:kokojima}
 \end {figure}
 
+This removes the need for curve subdivision, but the interior of the shape still needs to be triangulated. \cite{Kokojima06} combine the projective rendering of the quadratic curves with a stencil polygon rendering technique. First, an arbitrary pivot point is selected. For each linear segment a triangle is drawn with one of its vertices at the pivot point and the other two at the vertices of the line segment. For each quadratic segment a triangle is drawn between the pivot point and the first and the last control point, skipping the middle control point. Additionally, a triangle is drawn for each quadratic curve, discarding the pixels based on the projective technique of \cite{LoopBlinn05}. For every pixel drawn, the binary value in the stencil buffer is inverted. After all the triangles have been drawn, the values in the stencil buffer essentially represent the crossing number for every point as if the intersection ray was cast towards the pivot point. This allows the pixels in the framebuffer to be coloured according to even-odd fill rule.
+
 \subsection {Random Access Rendering by Image Localisation}
+
+\begin {figure}
+	\centering
+	\includegraphics [width=1.0\columnwidth] {figures/nehab_hoppe}
+	\caption {Random access rendering introduces a new paradigm in vector image rendering. (Image source: \cite{NehabHoppe08}) }
+	\label {fig:nehab_hoppe}
+\end {figure}
 
 The algorithms described so far enable efficient rendering of animated vector graphics. However, they are strongly based on the traditional primitive rasterization pipeline. As such, the rendered image can only be transformed by transforming the vertices of the triangle primitives before they are rasterized. Instead, we are aiming to use vector images as textures and map them onto other surfaces. As discussed previously, texture lookups follow a random access scheme, where the pixel colours are queried at an arbitrary coordinate within the image space in an arbitrary order. To achieve this, we need to construct an efficient lookup structure, that will allow us to evaluate the winding number of any point with respect to any vector shape from within the fragment shader.
 
@@ -502,14 +511,44 @@ Each fragment shader invocation computes the ray-segment intersection for the re
 
 Cell stream data generated by the encoding algorithm can be used at any point during rendering to perform an efficient colour lookup at any coordinate in image space. An encoded vector image can thus be used as a traditional raster texture. To display the image in its original appearance, a rectangle of matching size with appropriate vertex texture coordinates can be rendered. Alternatively, the image can be mapped onto an arbitrary surface, even under perspective transformation, as shown on Figure~\ref{fig:screenshots}.
 
-The lookup process begins by transforming the image space texture coordinate into grid space. When the target grid cell is determined, the pointer to the beginning of the stream is read. In this sense, the grid acts as an indirection table. After obtaining the stream pointer, the nodes in the linked list are processed one after another. Every line and quadratic curve node is tested for intersection and the winding number updated when a valid intersection is found. If the final winding number classifies the point as inside the shape according to the fill rule in use, the colour of the shape is returned, otherwise the current fragment is discarded.
+\subsection{Random Access Lookup}
 
+The lookup process begins by transforming the image space texture coordinate into grid space. When the target grid cell is determined, the pointer to the beginning of the stream is read. In this sense, the grid acts as an indirection table. After obtaining the stream pointer, the nodes in the linked list are processed one after another.
+
+Every line and quadratic curve node is tested for intersection and the winding number updated when a valid intersection is found. If the final winding number classifies the point as inside the shape according to the fill rule in use, the colour of the shape is returned, otherwise the current fragment is discarded.
+
+Note that the segments in the cell stream might belong to multiple shapes. The encoding algorithm only discards segments from a cell when it is entirely occluded by another shape, so a particular point might still be determined to be inside two different shapes. Since the shapes in the stream are sorted back to front, the color of the last occluding shape overwrites the previous one, but only if it is fully opaque. When a semi-transparent shape is encountered, the colour is blended with the current value.
+
+\subsection {Antialiasing}
+
+As discussed in \cite{NehabHoppe08} a localised image representation offers additional benefit of being able to perform adaptive supersampling based on the amount of detail in a cell. For instance, when a cell is entirely filled with one solid colour the lookup can revert to a single sample. Additionally, the cell stream data can be read from the GPU memory only once and shared by all the samples.
+
+However, we found that this approach only works correctly when the transformation from the screen space into texture space is known within the fragment shader performing the lookup and the samples of a pixel actually fall into the same localisation cell. This is only the case when the image is being rendered onto a flat surface or under known texture coordinate perturbation and not when the image is being mapped onto an arbitrary surface under perspective transformation. In the latter case, adjacent samples of the same pixel might fall onto a different primitive of the textured object and require a lookup from a different grid cell.
+
+To overcome these issues, we resorted to using the multi-sampling approach which has a good support in the modern hardware, and evaluate the texture lookup at every sample. This approach is completely generic and offers correct antialiasing in every scenario, but cannot take advantage of the potential optimisations described above.
 
 \section {Results and Analysis}
 
-In order to evaluate and compare the implemented approaches, we measured their encoding and rendering performance, required memory size, as well as combined performance of the two stages, which comes in effect when rendering animated images.
+In order to evaluate and compare the implemented approaches, we measured their encoding and rendering performance, as well as combined performance of the two stages, which comes in effect when rendering animated images. All results were obtained using Intel Core i7 2.80 GHz CPU with NVIDIA GTX460 1GB GPU.
 
-All results were obtained using Intel Core i7 2.80 GHz CPU with NVIDIA GTX460 1GB GPU. Two different images were used in our tests: the tiger image, which has long been the traditional subject of benchmarking, as well as a block of text containing variable numbers of glyphs.
+
+\subsection {Test Images}
+
+\begin {figure} [b!]
+	\centering
+	\includegraphics[width=0.8\columnwidth] {figures/screenshots}
+	\caption {Tiger and text vector images used in our tests. On the left, the image rendered onto a flat surface. On the right, the image mapped onto a curved surface of a cylinder.}
+	\label {fig:screenshots}
+\end {figure}
+
+Two different images were used in our tests: the tiger image, which has long been the traditional subject of benchmarking for vector graphics, as well as a block of text containing variable numbers of glyphs. Both images are shown in Figure~\ref{fig:screenshots}
+
+The tiger image features many larger and smaller shapes of high complexity. For this reason, it was particularly good for testing the effect of lattice resolution on the encoding and rendering performance. Moreover, the shapes occluding each other presented a good test for the part of our encoding algorithm which discards segments from a cell when they are entirely occluded by another shape in front.
+
+The text image served a different purpose. It was mainly used to see how the encoding and rendering performance scales with the amount of input data. On the one hand, the glyphs of the text are fairly spread out and do not occlude each other. The details are thus regularly spread across the grid, eliminating the unfavorable scenario of unbalanced stream lengths between the grid cells. On the other hand, it was easy to control the amount of data by adding or removing characters from the text.
+
+
+\subsection {Encoding and Rendering Performance}
 
 \begin {figure} [ht]
 \centering
@@ -527,18 +566,6 @@ All results were obtained using Intel Core i7 2.80 GHz CPU with NVIDIA GTX460 1G
 	\label {fig:graph_grid_render}
 \end {minipage}
 \end {figure}
-
-\subsection {Memory Requirements}
-
-Figure~\ref{fig:graph_grid_memory} shows the total memory size of all the cell stream data, at various lattice resolutions. This is the effective size of the encoded vector image residing in the GPU memory which needs to be kept for continuous rendering.
-
-Despite the similarity in approach, the memory requirements of our implementation are generally higher than those achieved by \cite{NehabHoppe08}. This is mainly due to two important design choices. Firstly, the straightforward approximation of cubic curves with a fixed number of four quadratic segments greatly increases the total number of segments in the encoded image. This could be much improved by implementing a more flexible adaptive approximation. Secondly, due to the parallelism in our cell stream construction, the segments might be encoded into the stream out of order, so the end and start point of two consecutive segments cannot be shared and needs to be encoded twice in the node of each segment.
-
-Nonetheless, considering the diminished gains in rendering performance at large lattice resolutions, the memory requirements of our encoded vector image do not gravely exceed those of a traditional bitmap image. As described in the following section, the rendering performance with the same image reaches a plateau around resolution of 120x120 cells. At that grid size our pivot-point representation barely exceeds the memory size of a 32-bit bitmap image of the same pixel size at 1:1 scale, while offering all the advantages of vector image scalability.
-
-It is also worth noting, that our pivot-point representation requires significantly less memory than the auxiliary-segment representation, especially at higher grid resolutions, since the fully opaque cells do not require an auxiliary segment to mark them as interior.
-
-\subsection {Encoding and Rendering Performance}
 
 \begin {figure} [t]
 \centering
@@ -576,6 +603,16 @@ On the other hand, the random-access rendering is more alike to bitmap texturing
 To see the effect of the level of geometric complexity on the two rendering techniques, we used an image containing a block of text using vector glyphs. Figure~\ref{fig:graph_size_render} shows the effective framerate as the number of letters (and therefore glyph objects) in the image increases. For random-access rendering, the lattice resolution was being adjusted dynamically, so that each letter in the text covered roughly a 2 times 2 block of cells. This time, the increasing geometric complexity noticeably affected the forward rendering technique. The framerate of random-access rendering was also decreasing with the number of glyphs, since a larger number of pixels was being coloured. Nonetheless, the random-access technique still greatly outperformed forward rendering.
 
 It is also interesting to note that the performance of random-access encoding and rendering combined almost perfectly matched traditional rendering of the text image, which means animated text can be rendered with equal efficiency using both techniques.
+
+\subsection {Memory Requirements}
+
+Figure~\ref{fig:graph_grid_memory} shows the total memory size of all the cell stream data, at various lattice resolutions. This is the effective size of the encoded vector image residing in the GPU memory which needs to be kept for continuous rendering.
+
+Despite the similarity in approach, the memory requirements of our implementation are generally higher than those achieved by \cite{NehabHoppe08}. This is mainly due to two important design choices. Firstly, the straightforward approximation of cubic curves with a fixed number of four quadratic segments greatly increases the total number of segments in the encoded image. This could be much improved by implementing a more flexible adaptive approximation. Secondly, due to the parallelism in our cell stream construction, the segments might be encoded into the stream out of order, so the end and start point of two consecutive segments cannot be shared and needs to be encoded twice in the node of each segment.
+
+Nonetheless, considering the diminished gains in rendering performance at large lattice resolutions, the memory requirements of our encoded vector image do not gravely exceed those of a traditional bitmap image. As described in the following section, the rendering performance with the same image reaches a plateau around resolution of 120x120 cells. At that grid size our pivot-point representation barely exceeds the memory size of a 32-bit bitmap image of the same pixel size at 1:1 scale, while offering all the advantages of vector image scalability.
+
+It is also worth noting, that our pivot-point representation requires significantly less memory than the auxiliary-segment representation, especially at higher grid resolutions, since the fully opaque cells do not require an auxiliary segment to mark them as interior.
 
 \begin {figure} [t]
 \centering
@@ -632,13 +669,6 @@ Figure~\ref{fig:screenshots} shows the tiger and text images used as textures an
 Vector-based glyphs and other user interface elements can retain sharpness when rendered on a slanted or curved surface at any scale. This allows for much greater flexibility and creativity in user interface design and facilitates development of 3-dimensional desktop interfaces, which can lead to general improvement in screen estate management.
 
 In virtual worlds, bitmap textures suffer from artifacts when the viewer approaches the textured surface. In order to retain the image clarity, a sufficiently large bitmap has to be used to still read well at the closest distance it is expect to be observed from. This leads to suboptimal memory usage when a textured object is observed from afar. Traditionally, to work around this issue, multiple versions of the same image of various sizes would be used and loaded depending on the viewer's position. However, when a vector texture is used, a single version of the image needs to be loaded in memory to be able to render the textured object with maximum clarity regardless of the viewer's position.
-
-\begin {figure}
-	\centering
-	\includegraphics[width=1.0\columnwidth] {figures/render_all}
-	\caption {Tiger and text vector images used in our tests. On the left, the image rendered onto a flat surface. On the right, the image mapped onto a curved surface of a cylinder.}
-	\label {fig:screenshots}
-\end {figure}
 
 \newpage
 \bibliographystyle{alpha}
