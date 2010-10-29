@@ -129,6 +129,7 @@ meaning that the sum of all the polynomials of the same degree is always $1$. Th
 A simple way of finding a point on the  B\'{e}zier curve at an arbitrary parameter value is to substitute the value into every basis function, compute the products with the respective control points and add them together. While straightforward, this approach is not numerically stable. Instead, as described in \cite{Boehm99} we can evaluate the points on the curve by recursive subdivision of the sides of its control polygon. This technique, known as \emph{de Casteljau's algorithm} reduces numerical errors during the course of evaluation.
 
 \subsection{Winding Number Evaluation}
+\label{sec:winding}
 
 The B\'{e}zier curve equations can also be used to evaluate the winding number of any point with regards to a vector spline. We start by casting a ray from the point in an arbitrary direction. Based on the \emph{Jordan Curve Theorem}, the point is found to be inside the polygon, if the ray crosses an edge of the polygon an odd number of times. Counting the number of intersections gives a value known as the \emph{crossing number}. Now, by checking the direction of the intersecting edge, we instead add $+1$ for every left-to-right crossing and $-1$ for every right-to-left crossing. The resulting value is the winding number of the point.
 
@@ -151,7 +152,7 @@ Imagine the ray is being cast from point $P(x,y)$ horizontally in the positive d
 \end {minipage}
 \end {figure}
 
-Obviously, the winding number at any point depends on the geometry of the entire shape outline. It is this requirement that poses the greatest obstacle when designing an efficient random access rendering algorithm.
+Obviously, the winding number at any point depends on the geometry of the entire shape outline. More precisely, to evaluate the winding number of a single point, all the segments of the shape to the right of this point need to be identified and checked for horizontal ray intersection. It is this requirement that poses the greatest obstacle when designing an efficient random access rendering algorithm.
 
 \begin {figure}
 	\centering
@@ -263,11 +264,15 @@ The algorithms described so far enable efficient rendering of animated vector gr
 
 The above approach represents an important paradigm shift in vector image processing. Previous rendering techniques used vector image data as direct input to the traditional pipeline. Control vertices of vector curves were represented as vertices of basic graphics primitives and the primitive rasterization stage was cleverly enhanced with the specialized shading programs to perform the inside / outside classification of every pixel. In contrast, the image localisation approach does not represent any part of the vector image data using traditional graphics pipeline entities. A GPU texture is used merely as a memory buffer to contain encoded vector data and the fragment shader is used as a generic unit of computation that performs a look up into the encoded data and emits the resulting pixel color.
 
-\section {Pivot-Point Localised Image Representation}
+\section {Our Approach}
 
-In order to extend the random access rendering technique by \cite{NehabHoppe08} to animated vector images, the preprocessing step that constructs the lookup data structure needs to be accelerated. Their localised image representation is organized into grid cells, so it lends itself perfectly to a parallel encoding algorithm, meaning it can benefit from the parallel architecture of the GPU. However, their "fast lattice-clipping algorithm" requires the running sum of the winding number change to be calculated across an entire grid row. In this process, the value at every cell depends on the sum of the values of all the cells to its right, so this particular step of the algorithm cannot be efficiently parallelised.
+In order to extend the random access rendering technique by \cite{NehabHoppe08} to animated vector images, the preprocessing step that constructs the lookup data structure needs to be accelerated. Their localised image representation is organized into grid cells, so it lends itself directly to a parallel encoding algorithm, meaning it can benefit from the parallel architecture of the GPU.
 
-To avoid bottlenecks in the implementation, we developed an alternative localised image representation in an effort to minimise inter-cell dependencies. The main requirements set for our localised representation were two. On the one hand, the representation must exhibit a high degree of localisation to allow efficient random-access. On the other hand, this representation must be obtainable via some process which can achieve a high degree of parallelism. 
+However, their "fast lattice-clipping algorithm" involves certain steps which cannot be efficiently parallelised. To preserve the winding number within a cell, their algorithm creates auxiliary segments on the right boundary of each cell. The direction of the auxiliary segments affects the resulting winding number and depends on the segments in other cells, to the right of the cell in question. Therefore, for every segment crossing a cell, the winding number needs to be integrated into the cells to its left. The dependency of each cell on the contents of other cells makes it challenging to devise a parallel localisation algorithm.
+
+To avoid bottlenecks in our approach, we develop an alternative pivot-point (PP) localised image representation in an effort to minimise inter-cell dependencies and allow our encoding algorithm to take maximum advantage of the parallel GPU architecture. We also present an adjusted rendering algorithm that utilizes PP image representation for texture mapping.
+
+\subsection {Pivot-Point Localised Image Representation}
 
 \begin {figure}
 \centering
@@ -286,19 +291,27 @@ To avoid bottlenecks in the implementation, we developed an alternative localise
 \end {minipage}
 \end {figure}
 
-Like \cite{NehabHoppe08}, we create a coarse lattice across the original vector image. However, our approach differs in the contents of the lattice cells. To preserve the winding number within a cell, their algorithm creates auxiliary segments on the right boundary of each cell. The direction of the auxiliary segments affects the resulting winding number and depends on the segments in other cells, to the right of the cell in question. Therefore, for every segment crossing a cell, the winding number needs to be integrated into the cells to its left. The dependency of each cell on the contents of other cells makes it challenging to devise a parallel localisation algorithm.
+There are two main requirements for our localised representation: (i) it must exhibit a high degree of localisation to allow efficient random-access and (ii) it must be obtainable via some process which can achieve a high degree of parallelism. Like \cite{NehabHoppe08}, we create a coarse grid across the original vector image. However, our approach differs in the contents of the grid cells. 
 
-Instead, we start by observing that the winding number of any region in a vector shape can be determined by a single crossing of an edge, as long as the winding number of another adjacent region is known. As shown in figure~\ref{fig:ray_our} it is possible to move from one region to another, adjusting the winding number according to the direction of the crossing edge and thus finding the winding number of every region. We take advantage of this observation by assigning a \emph{pivot point} to every cell and finding the winding number of that point in the preprocessing step. The location of the pivot point is implicitly defined at the centre of the cell. Our localised image representation thus consists of a set of lattice cells containing a pivot winding number and the intersecting spline segments. No additional auxiliary segments are required.
+We start by observing that the winding number of any region in a vector shape can be determined by a single crossing of an edge, as long as the winding number of another adjacent region is known. As shown in Figure~\ref{fig:ray_our} it is possible to move from one region to another, adjusting the winding number according to the direction of the crossing edge and thus finding the winding number of every region.
 
-We adjust our rendering algorithm accordingly. While \cite{NehabHoppe08} cast a horizontal ray in the positive $x$ direction, we cast a ray from the pivot point of the cell in an arbitrary direction, towards any other point in the cell. The intersections of the ray with vector segments crossing the cell give the change in winding number from the original winding number of the pivot point.
+We take advantage of this observation by assigning a pivot point to every cell, with its location implicitly defined as the center of the cell. We find the winding number of the pivot point in the preprocessing step and then use it as the source for ray-casting, similar to how the forward rendering technique of \cite{Kokojima06} uses one of the control points as the pivot point for construction of auxiliary triangles.
 
-\section{Encoding}
+We adjust our rendering algorithm accordingly. While \cite{NehabHoppe08} cast a horizontal ray in the positive $x$ direction, we cast a ray from the pivot point $P$ of the cell in an arbitrary direction towards any other point $W$ in the cell for which the winding number is needed. The intersections of the ray with vector segments of the shape give the change in winding number of $W$ from the original winding number of $P$. Note that only the segments within the same cell as $P$ and $W$ need to be checked for intersection, as those are the only segments that can potentially stand in between the two points. Therefore, the number of segments that need to be intersected effectively decreases with the increase in grid resolution, thus satisfying requirement (i) for our localised representation.
 
-The purpose of our encoding algorithm is to construct a vector image lookup structure which allows efficient random-access while rendering. The input to the algorithm is the original vector image description consisting of a set of control points, segment types and colour for every shape. The output is a specialised version of that description, localised to every grid cell and encoded into its respective data stream.
+In contrast to cell contents of an AS representation, the pivot winding number in PP representation only depends on the geometry of the shape and not the resulting contents of other cells in the grid. This makes our representation more suitable to a parallel construction algorithm. As explained in Section~\ref{sec:winding}, finding the winding number at an arbitrary location on a point-by-point basis is not efficient. However, the subsequent sections show that it is possible to find the winding numbers for a set of points efficiently with a parallel algorithm, as long as the coordinates of the points are known in advance. Since locations of cell pivot points become known as soon as the grid resolution is chosen, our localised representation satisfies requirement (ii) set above.
 
-We decided to use a GPGPU approach, rather than a fully generic GPU Computing approach, meaning the steps of the algorithm had to be expressed by traditional graphical constructs. The main reason for this choice was that, at the time of writing, the GPU Computing was not as mature as the graphics pipeline was, and to our knowledge, the GPGPU approaches still performed better, especially when the result of computation is reused for rendering.
+Our PP representation of a vector image thus consists of a set of grid cells containing a pivot winding number and the list of intersecting spline segments. In contrast to AS representation, no additional auxiliary segments are required, resulting in a smaller number of segments per grid cell.
 
-In order to be able to compare the performance achievable with the two different localised representations, we implemented the encoding pass and the rendering pass for both our pivot-point representation as well as the auxiliary-segment representation used by \cite{NehabHoppe08}. The following sections describe our implementation in detail. Most of the algorithm is equal for both image representations, except where we explicitly mention the differences.
+\subsection {Image Pipeline}
+
+We split our image processing pipeline into two stages: encoding and rendering. The purpose of the encoding stage is to convert the original vector image data into a localised representation. This stage performs all the preprocessing required so that the resulting lookup structure can be directly used for rendering. As long as the image data does not change, only the rendering stage needs to be invoked in order to display the image. When the image is animated, the encoding stage is invoked on every frame to rebuild the lookup structure before the rendering stage.
+
+The following sections describe our encoding and rendering algorithms in detail. In order to be able to compare the performance of the two different localised representations, we implemented the encoding pass and the rendering pass for both our PP representation as well as the AS representation by \cite{NehabHoppe08}. The algorithms are mostly similar for both image representations, except where we explicitly mention the differences.
+
+Despite the output of the encoding stage being used for rendering purposes, the encoding algorithm cannot be modeled directly by the traditional graphics pipeline. Like \cite{NehabHoppe08}, we use a GPGPU approach rather than a fully generic GPU Computing approach, meaning the steps of the algorithm are expressed in terms of graphical constructs. The main reason for this choice is that the GPU Computing is still rapidly evolving, with tools maturing, and that to our knowledge the GPGPU approaches still performed better.
+
+%The input to the algorithm is the original vector image description consisting of a set of control points, segment types and colour for every shape. The output is a specialised version of that description, localised to every grid cell and encoded into its respective data stream.
 
 
 %\subsection{Memory interface}
@@ -307,6 +320,8 @@ In order to be able to compare the performance achievable with the two different
 %
 %Our GPU implementation of the image encoding would not be possible without read and write access to an arbitrary location in the GPU memory. To achieve that, we used the previously described {\tt NV\_shader\_buffer\_store} OpenGL extension, only available on most recent hardware. An additional advantage of this extension is the ability to cast memory pointer types and thus view parts of the same block of memory as a different data type. This allows the memory to be viewed through C-like structures defined in the shader code and thus store integer and floating point numbers of different bit sizes next to each other. Unfortunately, our time constraints did not allow us to investigate the potential advantages of such an approach. Instead, we allocate all the GPU buffers as a 32-bit integer or floating point array and always use them through the pointer of the same respective type. It might also be worth investigating the performance and memory advantages of using 16-bit precision variables in various parts of our data structures. This was left for future work.
 
+\subsection{Intermediate and Output Memory Buffers}
+
 \begin {figure}
 	\centering
 	\includegraphics[width=0.4\columnwidth] {figures/data_buffers}
@@ -314,39 +329,11 @@ In order to be able to compare the performance achievable with the two different
 	\label {fig:data_buffers}
 \end {figure}
 
-\subsection {Algorithm input}
-
-Our implementation requires minimal setup by the CPU which includes the following steps:
-
-\begin {enumerate}
-\item
-Approximate cubic curve segments with multiple quadratic segments.
-\item
-Compute the coarse bounding box of the entire image and every separate object based on the segment control points.
-\item
-Compute the memory size of the main grid and object sub-grids to format the grid memory pool.
-\item
-Upload the object grid offset indices and segment control points into the GPU buffers.
-\end {enumerate}
-
-The input required by every pass of our encoding algorithm is represented with the smallest number of vertices that define the respective geometry, so as to minimize the amount of data required to be sent to the GPU on every frame. Objects are represented by a line primitive extending from the minimum point to the maximum point of the object's bounding box. Straight line segments are represented directly by a line primitive. Quadratic curve segments are represented by a triangle which encodes the three control points of the curve.
-
-Note that these input primitives are never processed by the graphics pipeline. Rather, they are only used to carry the input data to the algorithm and to trigger the pipeline execution. As described later, initial primitives are discarded by the geometry shader, after the input data is decoded.
-
-\subsection{Data structures}
-
-During the execution of the algorithm, two intermediate memory buffers are used and one output buffer shown on Figure~\ref{fig:data_buffers}. The intermediate synchronisation buffer and the grid buffer are allocated as 32-bit integer arrays. They hold counter variables which are accessed during the algorithm via atomic operations to synchronize encoding of the interleaved cell streams. The synchronisation buffer holds just a single global stream length counter. The grid buffer holds several counters for every cell of the main grid as well the smaller object grids. The purpose of each of the grid counters is described later in the algorithm details. The object grids hold their own set of these same counters which are required to be able to process segments of multiple objects simultaneously and thus maximise the achievable level of parallelism. The size of an object grid is determined by the bounding box of the respective object. However, the cells of these sub-grids are aligned with the cells of the main grid, so that the information can be assimilated and propagated to the main grid at the end of the encoding.
+During the execution of our preprocessing algorithm, two intermediate memory buffers are used and one output buffer shown on Figure~\ref{fig:data_buffers}. The intermediate synchronisation buffer and the grid buffer are allocated as 32-bit integer arrays. They hold counter variables which are accessed during the algorithm via atomic operations to synchronize encoding of the interleaved cell streams. The synchronisation buffer holds just a single global stream length counter. The grid buffer holds several counters for every cell of the main grid as well the smaller object grids. The purpose of each of the grid counters is described later in the algorithm details. The object grids hold their own set of these same counters which are required to be able to process segments of multiple objects simultaneously and thus maximise the achievable level of parallelism. The size of an object grid is determined by the bounding box of the respective object. However, the cells of these sub-grids are aligned with the cells of the main grid, so that the information can be assimilated and propagated to the main grid at the end of the encoding.
 
 The stream buffer is allocated as a 32-bit floating point array. It holds the cell stream data represented as interleaved linked lists. Each cell stream belongs to one cell in the main grid and encodes the spline segments or auxiliary segments intersecting that cell. Each node of a linked list encodes the control points of a spline segment or an object info header.
 
-\subsection {Linked list cell streams}
-
-\begin {figure}
-	\centering
-	\includegraphics[width=0.6\columnwidth] {figures/cell_stream}
-	\caption {The state of the stream buffer and synchronisation counters after the first two segments of a triangle shape are processed.}
-	\label {fig:cell_stream}
-\end {figure}
+\subsection {Segment Cell Stream}
 
 The data in the stream buffer is organized into nodes of different types, inter-linked via the stream index of the first data in the node. Different nodes have different number of data values and therefore different sizes. The first value in every node defines the type of the node. The second value in every node is the link to the previous node in the same list. The following values in the node encode the control points of the line or quadratic curve segment or the properties of an object.
 
@@ -378,6 +365,13 @@ The node insertion algorithm is as follows:
 
 where \emph{atomicAdd} function adds the given value to an atomic counter and \emph{atomicSwap} function swaps the value of the atomic counter with the new value. Both atomic functions return the old value read prior to the modification.
 
+\begin {figure}
+	\centering
+	\includegraphics[width=0.6\columnwidth] {figures/cell_stream}
+	\caption {The state of the stream buffer and synchronisation counters after the first two segments of a triangle shape are processed.}
+	\label {fig:cell_stream}
+\end {figure}
+
 The segment encoding pass uses atomic counter $H$ in the sub-grid of the object to which the current segment belongs. By using separate head pointers for every object, multiple linked lists per cell can be constructed concurrently, which are then assembled in another pass encoding the object info headers. The object encoding pass uses the atomic counter $H$ in the main grid, but reads the $H$ counter from respective object grid cell and stores it into the object header node. This results in a single linked list per cell of the main grid containing object headers, where each object header points to another linked list containing the object segments intersecting the cell. Figure~\ref{fig:obj_stream} illustrates one possible final structure of a stream buffer.
 
 The final back-to-front sorting pass iterates through the object header linked list for every cell and sorts the contents of the nodes based on the index of the object in the vector image.
@@ -389,7 +383,26 @@ The final back-to-front sorting pass iterates through the object header linked l
 	\label {fig:obj_stream}
 \end {figure}
 
-\subsection {Parallelism}
+\subsection {Encoding Input Setup}
+
+Our encoding algorithm requires minimal setup by the CPU which includes the following steps:
+
+\begin {enumerate}
+\item
+Approximate cubic curve segments with multiple quadratic segments.
+\item
+Compute the coarse bounding box of the entire image and every separate object based on the segment control points.
+\item
+Compute the memory size of the main grid and object sub-grids to format the grid memory pool.
+\item
+Upload the object grid offset indices and segment control points into the GPU buffers.
+\end {enumerate}
+
+The input required by every pass of our encoding algorithm is represented with the smallest number of vertices that define the respective geometry, so as to minimize the amount of data required to be sent to the GPU on every frame. Objects are represented by a line primitive extending from the minimum point to the maximum point of the object's bounding box. Straight line segments are represented directly by a line primitive. Quadratic curve segments are represented by a triangle which encodes the three control points of the curve.
+
+Note that these input primitives are never processed by the graphics pipeline. Rather, they are only used to carry the input data to the algorithm and to trigger the pipeline execution. As described later, initial primitives are discarded by the geometry shader, after the input data is decoded.
+
+\subsection {Encoding Algorithm}
 
 Parallelism in our implementation is achieved by distributing the processing of geometry between multiple shader processors on the GPU with regard to segments, control points or grid cells. 
 
@@ -507,7 +520,7 @@ To parallelise the computation of the ray-segment intersections, we extend the s
 
 Each fragment shader invocation computes the ray-segment intersection for the respective pivot point and updates the winding number counter in the object grid cell with an atomic operation. When the object header encoding pass begins, the grid cell counters contain the final winding number of their pivot point. This winding number is stored into the object header and used in the rendering pass to offset the winding number obtained with segment intersections between the pivot point and an arbitrary point inside the cell.
 
-\section {Rendering}
+\subsection {Rendering Algorithm}
 
 Cell stream data generated by the encoding algorithm can be used at any point during rendering to perform an efficient colour lookup at any coordinate in image space. An encoded vector image can thus be used as a traditional raster texture. To display the image in its original appearance, a rectangle of matching size with appropriate vertex texture coordinates can be rendered. Alternatively, the image can be mapped onto an arbitrary surface, even under perspective transformation, as shown on Figure~\ref{fig:screenshots}.
 
