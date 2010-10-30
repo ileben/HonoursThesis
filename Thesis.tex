@@ -266,6 +266,7 @@ The algorithms described so far enable efficient rendering of animated vector gr
 The above approach represents an important paradigm shift in vector image processing. Previous rendering techniques used vector image data as direct input to the traditional pipeline. Control vertices of vector curves were represented as vertices of basic graphics primitives and the primitive rasterization stage was cleverly enhanced with the specialized shading programs to perform the inside / outside classification of every pixel. In contrast, the image localisation approach does not represent any part of the vector image data using traditional graphics pipeline entities. A GPU texture is used merely as a memory buffer to contain encoded vector data and the fragment shader is used as a generic unit of computation that performs a look up into the encoded data and emits the resulting pixel color.
 
 \section {Our Approach}
+\label{sec:our}
 
 In order to extend the random access rendering technique by \cite{NehabHoppe08} to animated vector images, the preprocessing step that constructs the lookup data structure needs to be accelerated. Their localised image representation is organized into grid cells, so it lends itself directly to a parallel encoding algorithm, meaning it can benefit from the parallel architecture of the GPU.
 
@@ -310,20 +311,10 @@ We split our image processing pipeline into two stages: encoding and rendering. 
 
 The following sections describe our encoding and rendering algorithms in detail. In order to be able to compare the performance of the two different localised representations, we implemented the encoding pass and the rendering pass for both our PP representation as well as the AS representation by \cite{NehabHoppe08}. The algorithms are mostly similar for both image representations, except where we explicitly mention the differences.
 
-%The input to the algorithm is the original vector image description consisting of a set of control points, segment types and colour for every shape. The output is a specialised version of that description, localised to every grid cell and encoded into its respective data stream.
-
-
-%\subsection{Memory interface}
-%
-%The input to the encoding algorithm is given in the vertex buffers uploaded onto the GPU. The output is also stored in the GPU memory and directly reused by the rendering stage. Since the entire process of encoding and drawing is repeated in every frame, the output buffers can be reused between multiple images. This means the upper bound on the memory used by our approach is equal to the memory requirements of the largest image ever being drawn and does not increase when additional vector images are used in the same scene.
-%
-%Our GPU implementation of the image encoding would not be possible without read and write access to an arbitrary location in the GPU memory. To achieve that, we used the previously described {\tt NV\_shader\_buffer\_store} OpenGL extension, only available on most recent hardware. An additional advantage of this extension is the ability to cast memory pointer types and thus view parts of the same block of memory as a different data type. This allows the memory to be viewed through C-like structures defined in the shader code and thus store integer and floating point numbers of different bit sizes next to each other. Unfortunately, our time constraints did not allow us to investigate the potential advantages of such an approach. Instead, we allocate all the GPU buffers as a 32-bit integer or floating point array and always use them through the pointer of the same respective type. It might also be worth investigating the performance and memory advantages of using 16-bit precision variables in various parts of our data structures. This was left for future work.
-
-
 \subsection {Encoding Algorithm}
 
-\subsubsection {Input Setup}
-
+%\subsubsection {Input Setup}
+%
 Our encoding algorithm requires minimal setup by the CPU which includes the following steps:
 
 \begin {enumerate}
@@ -334,10 +325,9 @@ Compute the coarse bounding box of the entire image and every separate object ba
 \item
 Compute the memory size of the main grid and object sub-grids to format the grid memory pool.
 \item
-Upload the object grid offset indices and segment control points into the GPU buffers.
+Upload grid info, object info, and segment control points into the GPU memory.
 \end {enumerate}
-
-
+These steps need to be repeated whenever the input data changes, but we found the time taken by this setup to be negligibly small compared to the rest of the algorithm.
 
 \subsubsection {Algorithm Overview}
 
@@ -361,7 +351,7 @@ for (every object)
 			if (intersects cell)
 				insert line segment node into cell stream
 				link line node to previous node in the same cell
-			loop
+			endif
 		loop
 	loop
 	for (every quadratic segment)
@@ -370,7 +360,7 @@ for (every object)
 			if (intersects cell)
 				insert quad segment node into cell stream
 				link quad node to previous node in the same cell
-			loop
+			endif
 		loop
 	loop
 loop
@@ -398,72 +388,24 @@ loop
 \end {verbatimtab}
 \end {code}
 
+\begin {figure} 
+	\centering
+	\includegraphics[width=0.8\columnwidth] {figures/parallelism}
+	\caption {Various programmable stages of the graphics pipeline collaborate in encoding of a quadratic curve segment.}
+	\label {fig:parallelism}
+\end {figure}
+
 Despite the output of the encoding stage being used for rendering purposes, the encoding algorithm itself cannot be modeled directly by the traditional graphics pipeline. Like \cite{NehabHoppe08}, we use a GPGPU approach rather than a fully generic GPU Computing approach, meaning the steps of the algorithm are expressed in terms of graphical constructs. The main reason for this choice is that the GPU Computing is still rapidly evolving, with tools maturing, and that to our knowledge the GPGPU approaches still perform better.
 
-In the GPU implementation of the algorithm the steps of each loop actually run in parallel. The input data is encoded into graphical primitives and the drawing calls are issued so as to trigger multiple invocations of the shader programs for every element of the input. Parallelism is achieved by distributing the computation between multiple shader processors on the GPU with regard to segments, control points or grid cells. 
+In the GPU implementation of the algorithm the steps of every loop actually run in parallel. The input data is encoded into graphical primitives and the drawing calls are issued so as to trigger multiple invocations of the shader programs for every element of the input. Parallelism is achieved by distributing the computation between multiple shader processors on the GPU with regard to segments, control points or grid cells. Figure~\ref{fig:parallelism} illustrates the distribution of computation across the various programmable stages of the graphics pipeline. Vertex shaders process multiple control points, geometry shaders find the bounding box of multiple segments, and fragment shaders encode the segments into multiple cells covered by their bounding box in parallel.
 
-The input required by every pass is represented with the smallest number of vertices that define the respective geometry, so as to minimize the data transfer between the main and the GPU memory. Objects are represented by a line primitive extending from the minimum point to the maximum point of the object's bounding box. Straight line segments are represented directly by a line primitive. Quadratic curve segments are represented by a triangle which encodes the three control points of the curve. Note that these input primitives are never processed by the graphics pipeline in the traditional way. Instead, we are taking advantage of the programmable stages in the pipeline to decode the input data, process it as needed, and then encode the results so they can be passed to the next stage of the pipeline.
+Every top-level loop in our encoding algorithm represents one graphics pipeline pass. The input required by every pass is represented with the smallest number of vertices that define the respective geometry, in order to minimize the data transfer between the main and the GPU memory. Objects are represented by a line primitive extending from the minimum point to the maximum point of the object's bounding box. Straight line segments are represented directly by a line primitive. Quadratic curve segments are represented by a triangle which encodes the three control points of the curve. Note that these input primitives are not processed by the graphics pipeline in the traditional way. Instead, we are taking advantage of the programmable stages in the pipeline to decode the input data, process it as needed, and then encode the results so they can be passed to the next stage of the pipeline.
 
 Thanks to recent advances in graphic hardware, described in Section~\ref{sec:recent}, the algorithm can interact with the intermediate and output memory buffers directly. However, due to multiple levels of cache the concurrent memory access might result in memory discrepancies as seen by the processors from different processing groups. To avoid this, an explicit function call needs to be issued to synchronise the memory across all the processors. It is important to note that none of the points of memory synchronisation are inside a loop, which means the number of required synchronisations is fixed and does not increase with the complexity of the input data. 
 
 This was especially challenging to achieve on the level of objects when an image consists of multiple overlapping shapes of different colors. The encoded segment lists for each object need to be kept separate within each cell, so that the inside/outside classification in the rendering stage can be done on per-object basis. The following sections describe the segment list construction in detail, including our solution to the problem of segment list separation.
 
-\subsubsection{Intermediate and Output Memory Buffers}
-
-\begin {figure}
-	\centering
-	\includegraphics[width=0.4\columnwidth] {figures/data_buffers}
-	\caption {Three buffers used by the encoding algorithm. The main indirection grid and the stream buffer are the input to the rendering pass.}
-	\label {fig:data_buffers}
-\end {figure}
-
-During the execution of our encoding algorithm, two intermediate memory buffers are used and one output buffer shown on Figure~\ref{fig:data_buffers}. The intermediate synchronisation and grid buffers hold counter variables which are accessed during the algorithm via atomic operations to synchronize the encoding between multiple shader processors.
-
-The synchronisation buffer holds just a single global stream length counter. The grid buffer holds several counters for every cell of the main grid as well the smaller object grids. The object grids hold their own set of these same counters which are required to be able to process segments of multiple objects simultaneously and thus maximise the achievable level of parallelism. The size of an object grid is determined by the bounding box of the respective object. However, the cells of these sub-grids are aligned with the cells of the main grid, so that the information can be assimilated and propagated to the main grid at the end of the encoding.
-
-The output stream buffer holds the cell stream data represented as interleaved linked lists. Each cell stream belongs to one cell in the main grid and encodes the spline segments or auxiliary segments intersecting that cell. Each node of a linked list encodes the control points of a spline segment or an object info header.
-
-\subsubsection {Segment List}
-
-The data in the stream buffer is organized into nodes of different types, inter-linked via the stream index of the first data in the node. Different nodes have different number of data values and therefore different sizes. The first value in every node defines the type of the node. The second value in every node is the link to the previous node in the same list. The following values in the node encode the control points of the line or quadratic curve segment or the properties of an object.
-
-\begin {figure}
-	\centering
-	\includegraphics[width=0.6\columnwidth] {figures/cell_stream}
-	\caption {The state of the stream buffer and synchronisation counters after the first two segments of a triangle shape are processed.}
-	\label {fig:cell_stream}
-\end {figure}
-
-Such organisation allows us to interleave multiple lists within the same memory space. One list contains segments of one particular object intersecting one particular grid cell. There might be multiple objects intersecting the same cell, which results in multiple linked lists per cell. The counters in the object sub-grids are used to facilitate concurrent construction of lists for all the object within the same cell as described below.
-
-The variables used in the list construction are the following:
-
-\begin {enumerate}
-\item
-Atomic counter $L$ in the synchronisation buffer holding total stream length
-\item
-Atomic counter $H$ in a cell of the grid buffer holding stream index of the first node (list head)
-\item
-Size $S$ of the new node as number of stream words
-\item
-Stream index $I$ of the new node in the list
-\item
-Stream index $P$ of the previous node in the list
-\end {enumerate}
-
-The node insertion algorithm is as follows:
-\begin{verbatimtab}[3]
-	I = atomicAdd( L, S )
-	P = atomicSwap( H, I )
-	stream[ I ] = nodeType
-	stream[ I+1 ] = P
-	stream[ I+...] = additional node data...
-\end{verbatimtab}
-where \emph{atomicAdd} function adds the given value to an atomic counter and \emph{atomicSwap} function swaps the value of the atomic counter with the new value. Both atomic functions return the old value read prior to the modification.
-
-The segment encoding pass uses atomic counter $H$ in the sub-grid of the object to which the current segment belongs. By using separate head pointers for every object, multiple linked lists per cell can be constructed concurrently, which are then assembled in another pass encoding the object info headers. The object encoding pass uses the atomic counter $H$ in the main grid, but reads the $H$ counter from respective object grid cell and stores it into the object header node. This results in a single linked list per cell of the main grid containing object headers, where each object header points to another linked list containing the object segments intersecting the cell. Figure~\ref{fig:obj_stream} illustrates one possible final structure of a stream buffer.
-
-The final back-to-front sorting pass iterates through the object header linked list for every cell and sorts the contents of the nodes based on the index of the object in the vector image.
+\subsubsection {Segment List Construction}
 
 \begin {figure} 
 	\centering
@@ -472,27 +414,79 @@ The final back-to-front sorting pass iterates through the object header linked l
 	\label {fig:obj_stream}
 \end {figure}
 
-\subsubsection {PP Localisation}
+The output of our encoding algorithm is written into the stream buffer. The data in the stream buffer is organized into nodes of different types, inter-linked via the stream index of the first data in the node. Different nodes have different number of data values and therefore different sizes. The first value in every node defines the type of the node. The second value in every node is the stream index of the previous node in the same list. The following values in the node encode additional parameters, depending on the node type. A stream index of value -1 indicates the end of a linked list. Such organisation allows us to interleave multiple lists with nodes of different types and sizes within the same memory space.
 
-In the pivot-point version of our encoding algorithm the segment encoding pass performs an additional task of computing the exact winding number for the pivot point of every object grid cell with regard to the entire object shape. To this end, the segment encoding shader needs to compute not only the intersection between the segment and the cell, but also the intersection between the segment and the horizontal rays cast from the pivot points of every cell to the left.
+We use three types of nodes in our localised representation. A line segment node encodes the two control points of a linear segment. A quadratic segment node encodes the three control points of a quadratic curve segment. An object header node encodes the ID of the object to which a list of segments belongs. This ID represents the Z-order of the object within the vector image and is also used in the rendering stage to look up object properties (such as colour) in the object info buffer.
 
-To parallelise the computation of the ray-segment intersections, we extend the segment bounding box rectangle on the left side all the way to the left edge of the respective object grid. This gives us additional shader invocations for the grid cells to the left of the segment.
+There might be multiple objects intersecting the same cell and we need to be able to distinguish which segments belong to which object. To this end, we create a separate segment list for every object intersecting a cell and connect all the segment lists of a cell via another linked list containing object header nodes. We also create an indirection grid which contains pointers to the beginning of the respective object header list for every cell. Figure~\ref{fig:obj_stream} shows an example of one possible final structure of the stream buffer.
 
-Each fragment shader invocation computes the ray-segment intersection for the respective pivot point and updates the winding number counter in the object grid cell with an atomic operation. When the object header encoding pass begins, the grid cell counters contain the final winding number of their pivot point. This winding number is stored into the object header and used in the rendering pass to offset the winding number obtained with segment intersections between the pivot point and an arbitrary point inside the cell.
+%\subsubsection {Segment List Construction}
 
-\subsubsection{AS Localisation}
+%The variables used in the list construction are the following:
+%\begin {enumerate}
+%\item
+%Atomic counter $L$ holding the total stream length
+%\item
+%Atomic counter $H$ holding the stream index of the first node (list head)
+%\item
+%Size $S$ of the new node as number of stream words
+%\item
+%Stream index $I$ of the new node in the list
+%\item
+%Stream index $P$ of the previous node in the list
+%\end {enumerate}
 
-Our auxiliary-segment encoding algorithm is a GPU implementation of the "fast lattice-clipping algorithm" used by \cite{NehabHoppe08} with minor adjustments in order to improve the parallelism. The line segment and quadratic segment encoding passes of our algorithm perform the cell boundary intersection tests and compute the change  $\Delta{h}$ in winding number. The object header encoding pass performs insertion of auxiliary vertical segments based on the final winding number sum $h$.
+The stream node insertion algorithm is given in the following pseudocode:
+%\begin{code}
+\begin{verbatimtab}[3]
+				I = atomicAdd( L, S )
+				P = atomicExchange( H, I )
+				stream[ I ] = node type
+				stream[ I+1 ] = P
+				stream[ I+...] = additional node data...
+\end{verbatimtab}
+%\end{code}
+where $L$ is the atomic counter holding the total stream length, $S$ is the size of the new node as number of stream words, $I$ is the stream index of the new node in the list, $H$ is the atomic counter holding the stream index of the last node in the list, and $P$ is the stream index of the previous node in the list. Function \emph{atomicAdd} adds the given value to an atomic counter and function \emph{atomicExchange} swaps the value of the atomic counter with the new value. Both atomic functions return the old value read prior to the modification.
 
-We use the same boundary conditions to insert auxiliary vertical segments on the right edges of the cells. However, rather than assimilating the running sum of $\Delta{h}$ in the object encoding pass, we update the sum across all the cells in the same row to the left of the current cell as soon as an intersection with a segment is found in the segment encoding pass. Although more work is done in total this way, our approach proved to work better in parallel, achieving a noticeable speed-up.
+Atomic counters $L$ and $H$ are the key to synchronisation of the encoding process between multiple shading processors. These counters are stored in the intermediate buffers shown on Figure~\ref{fig:data_buffers}. The synchronisation buffer holds a single global stream length counter $L$, while every cell of the grid buffer holds a list head counter $H$. The grid buffer is formatted so as to contain the cells of the main grid, followed by the cells of every object grid in row major order. The size of an object grid is determined by the bounding box of the respective object, aligned to the cells of the main grid.
+
+Since all the data is interleaved in a single stream buffer, only one $L$ counter is used. On the contrary, the use of multiple $H$ counters allows us to construct multiple linked lists simultaneously. The segment encoding pass uses atomic counter $H$ in the grid of the object to which the current segment belongs. The object encoding pass uses the atomic counter $H$ in the main grid, but reads the $H$ counter from the respective object grid cell and stores it into the object header node.
+
+After the object header encoding pass is done, all the segments within a grid cell can be accessed by reading the indirection index $H$ from the main grid cell and then iterating through the object header list and every segment sub-list as shown on Figure~\ref{fig:obj_stream}. The final back-to-front sorting pass iterates through the object header list for every cell and sorts the contents of the object header nodes based on the object ID.
+
+\begin {figure}
+	\centering
+	\includegraphics[width=0.5\columnwidth] {figures/data_buffers}
+	\caption {Three buffers used by the encoding algorithm. The main indirection grid and the stream buffer are the input to the rendering pass.}
+	\label {fig:data_buffers}
+\end {figure}
+
+%\begin {figure}
+%	\centering
+%	\includegraphics[width=0.6\columnwidth] {figures/cell_stream}
+%	\caption {The state of the stream buffer and synchronisation counters after the first two segments of a triangle shape are processed.}
+%	\label {fig:cell_stream}
+%\end {figure}
+
+\subsubsection {Pivot-Point Localisation}
+
+In the PP version of our encoding algorithm, the segment encoding pass performs an additional task of computing the exact winding number for the pivot points of every object grid cell. To achieve this, we need to compute additional intersections between every segment and the horizontal rays cast from the pivot points to its left.
+
+The computation of these intersections is parallelised by triggering additional shader invocations, not only for the cells covered by the segment, but also for every cell to its left. Each shader invocation computes the ray-segment intersection for the respective pivot point and updates the winding number counter in the object grid cell with an atomic operation. When the object header encoding pass begins, the grid cell counters contain the final winding number of their pivot point. This winding number is stored into the object header and used in the rendering pass to offset the winding number obtained with segment intersections between the pivot point and an arbitrary point inside the cell.
+
+\subsubsection{Auxiliary-Segment Localisation}
+
+The AS version of our encoding algorithm is a GPU implementation of the "fast lattice-clipping algorithm" used by \cite{NehabHoppe08} with minor adjustments in order to improve the parallelism. The segment encoding pass of our algorithm performs the cell boundary intersection tests and computes the change  $\Delta{h}$ in winding number. The object header encoding pass performs insertion of auxiliary vertical segments based on the final winding number sum $h$.
+
+We use the same boundary conditions to insert auxiliary vertical segments on the right edges of the cells. As discussed at the start of Section~\ref{sec:our}, computation of the running sum of $\Delta{h}$ itself cannot be efficiently parallelised. However, within our parallel algorithm we can still gain some advantage by not calculating it at once in the object encoding pass. Instead, we update the sum across all the cells in the same row to the left of the current cell in the segment encoding pass as soon as an intersection with a segment is found. Although more work is done in total this way, our approach proved to work better in parallel, achieving a noticeable speed-up.
 
 The reason for this is that the complexity of the segment encoding pass is much higher than the complexity of the final object header encoding pass. Since the $\Delta{h}$ is read and written concurrently from multiple shaders, it needs to be accessed through atomic operations. The result of every atomic operation needs to be synchronised between the local caches of multiple shading processor groups. Due to the higher complexity, there is more time between invocations of the segment encoding shader to perform the synchronisation, before the result needs to be read by another invocation, so the impact on the performance of the entire rendering pass is much lower.
 
-When the object header encoding pass begins, the grid cell counters already contain the final winding number sum $h$, which can then be used directly, to insert additional auxiliary segments, before the linked list is closed with an object header.
+When the object header encoding pass begins, the grid cell counters already contain the final winding number sum $h$, which can then be used directly to insert additional auxiliary segments, before the linked list is closed with an object header.
 
 \subsection {Rendering Algorithm}
 
-Cell stream data generated by the encoding algorithm can be used at any point during rendering to perform an efficient colour lookup at any coordinate in image space. An encoded vector image can thus be used as a traditional raster texture. To display the image in its original appearance, a rectangle of matching size with appropriate vertex texture coordinates can be rendered. Alternatively, the image can be mapped onto an arbitrary surface, even under perspective transformation, as shown on Figure~\ref{fig:screenshots}.
+Cell stream data generated by the encoding algorithm can be used at any time during rendering to perform an efficient colour lookup at any coordinate in image space. An encoded vector image can thus be used in the same way as a traditional raster texture. To display the image in its original appearance, a rectangle of matching size with appropriate vertex texture coordinates can be rendered. Alternatively, the image can be mapped onto an arbitrary surface, even under perspective transformation, as shown in Figure~\ref{fig:screenshots}.
 
 \subsubsection{Random Access Lookup}
 
@@ -512,10 +506,9 @@ To overcome these issues, we resorted to using the multi-sampling approach which
 
 \section {Results and Analysis}
 
-In order to evaluate and compare the implemented approaches, we measured their encoding and rendering performance, as well as combined performance of the two stages, which comes in effect when rendering animated images. All results were obtained using Intel Core i7 2.80 GHz CPU with NVIDIA GTX460 1GB GPU.
+The goal of our experiments was to test the performance of every stage in our image pipeline and compare it between the various approaches. We performed a number of experiments stressing the encoding and the rendering stage in combination with the pivot-point and the auxiliary-segment localised image representations. All results were obtained using Intel Core i7 2.80 GHz CPU with an NVIDIA GTX460 1GB GPU.
 
-
-\subsection {Test Images}
+\subsection {Experiment Design}
 
 \begin {figure} [b!]
 	\centering
@@ -524,47 +517,45 @@ In order to evaluate and compare the implemented approaches, we measured their e
 	\label {fig:screenshots}
 \end {figure}
 
-Two different images were used in our tests: the tiger image, which has long been the traditional subject of benchmarking for vector graphics, as well as a block of text containing variable numbers of glyphs. Both images are shown in Figure~\ref{fig:screenshots}
+Two different images were used in our experiments: the tiger image, which has long been the traditional subject of benchmarking for vector graphics, as well as a block of text containing variable numbers of glyphs. Both images are shown in Figure~\ref{fig:screenshots}.
 
 The tiger image features many larger and smaller shapes of high complexity. For this reason, it was particularly good for testing the effect of lattice resolution on the encoding and rendering performance. Moreover, the shapes occluding each other presented a good test for the part of our encoding algorithm which discards segments from a cell when they are entirely occluded by another shape in front.
 
-The text image served a different purpose. It was mainly used to see how the encoding and rendering performance scales with the amount of input data. On the one hand, the glyphs of the text are fairly spread out and do not occlude each other. The details are thus regularly spread across the grid, eliminating the unfavorable scenario of unbalanced stream lengths between the grid cells. On the other hand, it was easy to control the amount of data by adding or removing characters from the text.
+The text image served a different purpose. It was mainly used to see how the encoding and rendering performance scales with the amount of input data. The glyphs of the text are fairly spread out and do not occlude each other. The details are thus regularly spread across the grid, eliminating the unfavorable scenario of unbalanced stream lengths between the grid cells. It is also easy to control the amount of data by adding or removing characters from the text.
 
+Firstly, we wanted to compare the performance of our parallel GPU encoding algorithm against a sequential CPU approach. Even though modern CPUs include multiple processing cores, our CPU implementation only uses one thread of execution to execute the loops of our encoding algorithm iteratively. Of course, our parallel algorithm could probably be implemented with multiple threads on a CPU, but the purpose of this test was to compare a parallel processing approach against a sequential approach. As a matter of fact, it might be interesting to compare the performance of two parallel implementations, one on the CPU and one on the GPU, but this was left for future work.
+
+We also wanted to see which of the two localised image representations can be encoded faster with the CPU and the GPU approach and how the grid resolution affects the encoding performance. Our first experiment included measurement of achievable encoding rate (i.e. number of executions per second) for the tiger image, at various levels of grid resolution.
+
+Secondly, we wanted to test the random-access rendering performance using the two different image representations (PP and AS) and compare it to the performance of a traditional forward rendering approach. Our second experiment involved measurement of achievable rendering rate at various levels of grid resolution, for the same tiger image.
+
+Next, we wanted to simulate a scenario where the vector image is animated, in which case the encoding needs to be repeated on every frame. Unfortunately, our time limits did not permit us to implement the actual process of the animation of a vector image. Nonetheless, we could still evaluate the effective performance by measuring the combined encoding and rendering framerate. Again, we used the tiger image and repeated the experiment at various grid resolutions, in order to find the optimal balance between the encoding and rendering speed.
+
+The first three experiments test the performance as a function of grid resolution. In order to see how other factors affect the performance, we designed two more experiments. The fourth experiment measures the rendering speed of the tiger image at various levels of zoom, to show how the performance scales with the number of coloured pixels in the resulting raster. For the random-access rendering approach this means more texture lookups. For the forward rendering approach this means larger area of rasterization.
+
+Lastly, we used the text image to show how the rendering performance scales with the increasing geometric complexity. We measured the framerate of the random-access rendering and the forward-rendering approach while adding and removing characters from the text. In order to expose the geometric adaptability of the random-access approach, we adjusted the grid resolution every time the number of characters changed, so as to maintain a steady number of segments per cell.
 
 \subsection {Encoding and Rendering Performance}
 
-\begin {figure} [ht]
-\centering
-\begin {minipage} [b] {0.45\linewidth}
+\begin {figure} [h]
 	\centering
-	\includegraphics[width=1.0\columnwidth] {figures/graph_grid_memory}
-	\caption {Total memory size of the stream data as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
-	\label {fig:graph_grid_memory}
-\end {minipage}
-\hspace{0.5cm}
-\begin{minipage} [b] {0.45\linewidth}
-	\centering
-	\includegraphics[width=1.0\columnwidth] {figures/graph_grid_render}
-	\caption {Rendering speed as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
-	\label {fig:graph_grid_render}
-\end {minipage}
-\end {figure}
-
-\begin {figure} [t]
-\centering
-\begin {minipage} [b] {0.45\linewidth}
-	\centering
-	\includegraphics[width=1.0\columnwidth] {figures/graph_grid_encode}
+	\includegraphics[width=0.6\columnwidth] {figures/graph_grid_encode}
 	\caption {Encoding speed as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
 	\label {fig:graph_grid_encode}
-\end {minipage}
-\hspace{0.5cm}
-\begin{minipage} [b] {0.45\linewidth}
+\end {figure}
+
+\begin {figure} [h]
 	\centering
-	\includegraphics[width=1.0\columnwidth] {figures/graph_grid_encode_render}
+	\includegraphics[width=0.6\columnwidth] {figures/graph_grid_render}
+	\caption {Rendering speed as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
+	\label {fig:graph_grid_render}
+\end {figure}
+
+\begin {figure} [h]
+	\centering
+	\includegraphics[width=0.6\columnwidth] {figures/graph_grid_encode_render}
 	\caption {Encoding + rendering speed as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
 	\label {fig:graph_grid_encode_render}
-\end {minipage}
 \end {figure}
 
 As seen in Figure~\ref{fig:graph_grid_encode} our GPU implementation offers significant improvement in encoding performance over the CPU approach. Even at higher grid resolutions, when the CPU performance starts dropping below rate of 30 frames per second, the GPU encoding remains well above the interactive threshold.
@@ -575,7 +566,22 @@ Figure~\ref{fig:graph_grid_render} plots the rendering speed as a function of la
 
 We also measured the effective framerate in an animated image scenario, where both encoding and rendering have to be done on each frame. Figure~\ref{fig:graph_grid_encode_render} shows the results at various lattice resolutions. Both the CPU and the GPU data lines show a clear point at which the balance between encoding and rendering speed was optimal. This point mainly depends on the slower of the two components. In our case, faster GPU performance in encoding and rendering also results in higher optimal resolution and higher achievable combined framerate over the CPU approach.
 
-\subsection {Comparison with Traditional Forward Rendering}
+\subsection {Performance Scaling}
+
+\begin {figure} [h]
+	\centering
+	\includegraphics[width=0.6\columnwidth] {figures/graph_size_render}
+	\caption {Rendering speed as a function of actual image screen size for the tiger image in Figure~\ref{fig:screenshots}.}
+	\label {fig:graph_size_render}
+\end {figure}
+
+\begin {figure} [h]
+	\centering
+	\includegraphics[width=0.6\columnwidth] {figures/graph_glyphs_render}
+	\caption {Rendering speed as a function of number of glyphs for the text image in Figure~\ref{fig:screenshots}.}
+	\label {fig:graph_glyphs_render}
+\end {figure}
+
 
 We compared our random access rendering technique against the traditional forward rendering as described in \cite{Kokojima06} by rendering the vector image at various levels of scale. Figure~\ref{fig:graph_size_render} plots the framerate as a function of image screen size after scaling.
 
@@ -589,6 +595,13 @@ It is also interesting to note that the performance of random-access encoding an
 
 \subsection {Memory Requirements}
 
+\begin {figure} [h]
+	\centering
+	\includegraphics[width=0.55\columnwidth] {figures/graph_grid_memory}
+	\caption {Total memory size of the stream data as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
+	\label {fig:graph_grid_memory}
+\end {figure}
+
 Figure~\ref{fig:graph_grid_memory} shows the total memory size of all the cell stream data, at various lattice resolutions. This is the effective size of the encoded vector image residing in the GPU memory which needs to be kept for continuous rendering.
 
 Despite the similarity in approach, the memory requirements of our implementation are generally higher than those achieved by \cite{NehabHoppe08}. This is mainly due to two important design choices. Firstly, the straightforward approximation of cubic curves with a fixed number of four quadratic segments greatly increases the total number of segments in the encoded image. This could be much improved by implementing a more flexible adaptive approximation. Secondly, due to the parallelism in our cell stream construction, the segments might be encoded into the stream out of order, so the end and start point of two consecutive segments cannot be shared and needs to be encoded twice in the node of each segment.
@@ -597,22 +610,6 @@ Nonetheless, considering the diminished gains in rendering performance at large 
 
 It is also worth noting, that our pivot-point representation requires significantly less memory than the auxiliary-segment representation, especially at higher grid resolutions, since the fully opaque cells do not require an auxiliary segment to mark them as interior.
 
-\begin {figure} [t]
-\centering
-\begin {minipage} [b] {0.45\linewidth}
-	\centering
-	\includegraphics[width=1.0\columnwidth] {figures/graph_size_render}
-	\caption {Rendering speed as a function of actual image screen size for the tiger image in Figure~\ref{fig:screenshots}.}
-	\label {fig:graph_size_render}
-\end {minipage}
-\hspace{0.5cm}
-\begin{minipage} [b] {0.45\linewidth}
-	\centering
-	\includegraphics[width=1.0\columnwidth] {figures/graph_glyphs_render}
-	\caption {Rendering speed as a function of number of glyphs for the text image in Figure~\ref{fig:screenshots}.}
-	\label {fig:graph_glyphs_render}
-\end {minipage}
-\end {figure}
 
 \subsection {Limitations of Our Approach}
 
