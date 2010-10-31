@@ -1,6 +1,6 @@
 \documentclass[11pt,a4paper,twoside]{article}
 
-\newcommand{\student}{I. Leben}
+\newcommand{\student}{Ivan Leben}
 \newcommand{\topic}{Random Access Rendering of Animated Vector Graphics Using GPU}
 
 \usepackage{times}
@@ -15,6 +15,8 @@
 \usepackage{subfigure}
 \usepackage{verbatim}
 \usepackage{moreverb}
+\usepackage{url}
+\usepackage{algorithm}
 
 \newenvironment {code}{\footnotesize}{\normalsize}
 
@@ -24,7 +26,7 @@
 \author
 {
 {\sc \student}
-\\[3mm] {\bf Supervisor:} {\sc G. Leach}
+\\[3mm] {\bf Supervisor:} {\sc Geoff Leach}
 \\[5mm] Honours Thesis
 \\[5mm] School of Computer Science and Information Technology
 \\ RMIT University 
@@ -45,9 +47,9 @@ Efficient random access to image data allows texture mapping of images onto curv
 
 \section{Introduction}
 
-Random access rendering is a method whereby the colour of an image is computed at an arbitrary image space coordinate in an arbitrary order. Efficient random access to image data is a requirement for texture mapping and has traditionally been associated with raster images. The definition of a raster image as a grid of coloured pixels lends itself perfectly to the random access scheme. However, the main drawback is the artifacts such as jagged or blurred edges arising from missing detail in information when the image is scaled.
+Random access rendering is a method whereby the colour of an image is retrieved at an arbitrary image space coordinate in an arbitrary order. Efficient random access to image data is a requirement for texture mapping and has traditionally been associated with raster images. The definition of a raster image as a grid of coloured pixels lends itself perfectly to the random access scheme. However, the main drawback is the artifacts such as jagged or blurred edges arising from missing detail in information when the image is scaled, as shown in Figure~\ref{fig:zoom}.
 
-In contrast, vector graphics use mathematical equations and shapes to describe coloured regions. Such a definition allows scaling of a vector image while retaining sharp edges at colour discontinuities. As illustrated in Figure~\ref{fig:random_access_vector}, in order to classify a point as inside or outside a vector shape, we need to consider all of its primitives. Moreover, when rendering a small portion of a shape under large zoom, the parts outside of the visible area still need to be processed, adding to unnecessary overhead as the zoom factor increases. This makes straightforward approaches to random access inefficient and has until recently prevented the use of vector images as textures.
+In contrast, vector graphics use mathematical equations and shapes to describe coloured regions. Such a definition allows scaling of a vector image while retaining sharp edges at colour discontinuities. As illustrated in Figure~\ref{fig:random_access_vector}, in order to classify a point as inside or outside a vector shape, we need to consider all of its boundary segments. Moreover, when rendering a small portion of a shape under large zoom, the parts outside of the visible area still need to be processed, adding to unnecessary overhead as the zoom factor increases. This makes straightforward approaches to random access inefficient and has until recently prevented the use of vector images as textures.
 
 
 \begin {figure}
@@ -59,9 +61,9 @@ In contrast, vector graphics use mathematical equations and shapes to describe c
 
 Applications of vector graphics are many, ranging from high detail maps to general scalable user interfaces.  An efficient random access algorithm would further broaden the usability of vector images. Regions of a map outside of the view could be efficiently discarded as the user zooms in on a particular detail. Graphical user interfaces could be mapped onto surfaces in 3D space allowing new ways of navigation and better screen estate management.
 
-Historically, Graphics Processing Units (GPUs) have specialised into rendering of triangle primitives and have no built-in support for rasterization of curved shapes present in vector images. Nonetheless, dependency on the triangle-based rasterization has been alleviated by the increase in GPU programmability. Recently, \cite{NehabHoppe08} have developed a rendering technique that evaluates vector shapes directly in the programmable stages of the GPU, after localising the vector data in an expensive preprocessing step on the CPU. This allows efficient random access, but limits the use to static non-animated graphics.
+Historically, Graphics Processing Units (GPUs) have specialised into rendering of triangle primitives and have no built-in support for rasterization of curved shapes present in vector images. Nonetheless, dependency on the triangle-based rasterization has been alleviated by the increase in GPU programmability. Recently, \cite{NehabHoppe08} have developed a rendering technique which evaluates vector shapes directly in the programmable stages of the GPU, after localising vector data in an expensive preprocessing step on the CPU. This allows efficient random access, but limits the use to static non-animated graphics.
 
-An important thing to consider is the paradigm shift taken by an approach such as \cite{NehabHoppe08}. The traditional graphics pipeline starts with triangle and line primitives and rasterizes them into the framebuffer. Where primitives overlap, this results in multiple executions of the same processing instructions for a single pixel with regard to a different primitive. In contrast, the approach being discussed preprocesses the entire set of primitives in the scene to build a look-up data structure. In the final rendering stage, all the primitives affecting a given pixel can be looked up efficiently in a single execution of processing instructions to determine the colour of the pixel. It is important to note that such an approach increases the per-pixel processing complexity, but is facilitated by the recent advance in graphics hardware architecture.
+An important thing to consider is the paradigm shift taken by an approach such as \cite{NehabHoppe08}. In the traditional rendering technique the graphical primitives are processed once and displayed on the screen directly after a single pass through the graphics pipeline. In contrast, the approach being discussed preprocesses the entire set of primitives in the scene to build a look-up data structure, which allows all the primitives affecting a given pixel to be looked up efficiently in the final rendering stage to determine the colour of a pixel. It is important to note that such an approach increases the per-pixel processing complexity, but is facilitated by the recent advance in graphics hardware architecture.
 
 \begin {figure}
 	\centering
@@ -70,7 +72,7 @@ An important thing to consider is the paradigm shift taken by an approach such a
 	\label {fig:random_access_vector}
 \end {figure}
 
-The focus of this research is to extend the above approach by investigating alternative vector image data structures and preprocessing techniques, suitable to parallelisation and acceleration via the GPU. Our goal is to implement the entire rendering process, including the preprocessing steps, on the GPU. By taking advantage of the parallel architecture, great improvement in performance is achieved, allowing application to animated vector images where continuous preprocessing is required.
+The focus of this research is to extend the above approach by investigating alternative vector image data structures and preprocessing techniques, suitable to parallelisation and acceleration via the GPU. Our goal is to implement the entire rendering process, including the preprocessing steps, on the GPU. By taking advantage of the parallel architecture, significant improvement in performance is achieved, allowing application to animated vector images where continuous preprocessing is required.
 
 In general, this thesis investigates the following questions:
 
@@ -87,6 +89,7 @@ What degree of vector data localisation provides an optimal balance between prep
 What is the benefit of vector data localisation with regard to animated vector graphics where continuous preprocessing is required?
 \end {enumerate}
 
+
 \section {Background}
 \subsection {Vector Image Definition}
 
@@ -98,15 +101,15 @@ There are two common rules for determining the interior of a shape, namely \emph
 
 \begin {figure}
 	\centering
-	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/winding1} \label{fig:wind_a}}
+	\subfigure [] { \includegraphics [width=0.12\columnwidth] {figures/winding1} \label{fig:wind_a}}
 	\hspace{0.5cm}
-	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/winding2} \label{fig:wind_b}} \\
+	\subfigure [] { \includegraphics [width=0.12\columnwidth] {figures/winding2} \label{fig:wind_b}}
 	\hspace{0.5cm}
-	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/fill_rule_even_odd_1} \label{fig:wind_c}}
+	\subfigure [] { \includegraphics [width=0.12\columnwidth] {figures/fill_rule_even_odd_1} \label{fig:wind_c}}
 	\hspace{0.5cm}
-	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/fill_rule_non_zero_1} \label{fig:wind_d}}
+	\subfigure [] { \includegraphics [width=0.12\columnwidth] {figures/fill_rule_non_zero_1} \label{fig:wind_d}}
 	\hspace{0.5cm}
-	\subfigure [] { \includegraphics [width=0.13\columnwidth] {figures/fill_rule_any_2} \label{fig:wind_e}}
+	\subfigure [] { \includegraphics [width=0.12\columnwidth] {figures/fill_rule_any_2} \label{fig:wind_e}}
 	\caption
 		{\subref{fig:wind_a} a shape consisting of a single contour
 		\subref{fig:wind_b} a shape consisting of two contours with opposite orientation
@@ -124,16 +127,16 @@ where the points $\mathbf{P}_i$ are called \emph{control points} of the B\'{e}zi
 \[ \mathbf{b}_{i,n}(t) = \binom{n}{i} t^i (1 - t)^{n-i}, \quad i = 0, ... n \]
 are known as Bernstein basis polynomials of degree $n$ with the following property:
 \[ \sum_{i=0}^{n} \mathbf{b}_{i,n}(t) = 1, \quad t \in [0, 1] \]
-meaning that the sum of all the polynomials of the same degree is always $1$. The B\'{e}zier curve equation therefore interpolates between the given control points according to the parameter $t$, beginning exactly at $\mathbf{P}_0$ and ending exactly at $\mathbf{P}_n$. A curve of degree $n$ has $n+1$ control points. A  B\'{e}zier curve of degree $1$ is essentially a straight line. Consecutive spline segments share a control point where one ends and the next one begins. The ordered set of control points of all the segments defines the \emph{control polygon} of the spline as shown in figure~\ref{fig:spline}.
+meaning that the sum of all the polynomials of the same degree is always $1$. The B\'{e}zier curve equation therefore interpolates between the given control points according to the parameter $t$, beginning exactly at $\mathbf{P}_0$ and ending exactly at $\mathbf{P}_n$. A curve of degree $n$ has $n+1$ control points. A  B\'{e}zier curve of degree $1$ is essentially a straight line. Consecutive spline segments share a control point where one ends and the next one begins. The ordered set of control points of all the segments defines the \emph{control polygon} of the spline as shown in Figure~\ref{fig:spline}.
 
-A simple way of finding a point on the  B\'{e}zier curve at an arbitrary parameter value is to substitute the value into every basis function, compute the products with the respective control points and add them together. While straightforward, this approach is not numerically stable. Instead, as described in \cite{Boehm99} we can evaluate the points on the curve by recursive subdivision of the sides of its control polygon. This technique, known as \emph{de Casteljau's algorithm} reduces numerical errors during the course of evaluation.
+A simple way of calculating a point on the  B\'{e}zier curve at an arbitrary parameter value is to substitute the value into every basis function, compute the products with the respective control points and add them together. While straightforward, this approach is not numerically stable. Instead, as described in \cite{Boehm99} we can evaluate the points on the curve by recursive subdivision of the sides of its control polygon. This technique, known as \emph{de Casteljau's algorithm} reduces numerical errors during the course of evaluation.
 
 \subsection{Winding Number Evaluation}
 \label{sec:winding}
 
-The B\'{e}zier curve equations can also be used to evaluate the winding number of any point with regards to a vector spline. We start by casting a ray from the point in an arbitrary direction. Based on the \emph{Jordan Curve Theorem}, the point is found to be inside the polygon, if the ray crosses an edge of the polygon an odd number of times. Counting the number of intersections gives a value known as the \emph{crossing number}. Now, by checking the direction of the intersecting edge, we instead add $+1$ for every left-to-right crossing and $-1$ for every right-to-left crossing. The resulting value is the winding number of the point.
+The B\'{e}zier curve equations can also be used to evaluate the winding number of any point with regards to a vector spline. We start by casting a ray from the point in an arbitrary direction. Based on the \emph{Jordan Curve Theorem}, the point is inside the polygon, if the ray crosses an edge of the polygon an odd number of times. Counting the number of intersections gives a value known as the \emph{crossing number}. Now, by checking the direction of the intersecting edge, we instead add $+1$ for every left-to-right crossing and $-1$ for every right-to-left crossing. The resulting value is the winding number of the point.
 
-Imagine the ray is being cast from point $P(x,y)$ horizontally in the positive direction of the $x$ axis. We can find an intersection with any segment of the spline by finding the roots $t_i$ of the equation $y = y(t)$ where $y(t)$ is the linear or higher order polynomial describing the spline segment. When $t \in [0,1]$ and $x < x(t)$, the ray intersects the segment.
+Imagine the ray is being cast from point $P(x,y)$ horizontally in the positive direction of the $x$ axis. We can find an intersection with any segment of the spline by finding the roots $t_i$ of the equation $y = y(t)$ where $y(t)$ is the linear or higher order polynomial describing the spline segment. When $t_i \in [0,1]$ and $x < x(t_i)$, the ray intersects the segment.
 
 \begin {figure}
 \centering
@@ -163,61 +166,63 @@ Obviously, the winding number at any point depends on the geometry of the entire
 
 \subsection{Traditional Graphics Pipeline}
 
-Modern display devices require input in the form of a grid of colour values, called a \emph{raster}. A colour value in a raster is called a \emph{pixel}. For a graphical object to be displayed, the pixels covered by its shape need to be determined in a process called \emph{rasterisation} and the colour values in the display raster changed accordingly. The architecture of modern GPUs is optimised for rasterisation of three types of primitives: points, lines and triangles. The roots of this design reach into the early history of computer graphics when parallel computing architecture was not as powerful and programmable as today. Triangle rasterisation coupled with texture mapping of raster images was much simpler to implement in hardware compared to direct evaluation of higher order mathematical equations. Thus more complex shapes have to be converted into the basic primitives by tesselation, in order to accommodate and benefit from hardware-accelerated rendering.
+Modern display devices require input in the form of a grid of colour values, called a \emph{raster}. A colour value in a raster is called a \emph{pixel}. For a graphical object or shape to be displayed, the pixels covered by the shape need to be determined in a process called \emph{rasterisation} and the colour values in the display raster changed accordingly. The architecture of modern GPUs is optimised for rasterisation of three types of primitives: points, lines and triangles. The roots of this design reach into the early history of computer graphics when parallel computing architecture was not as powerful and programmable as today. Triangle rasterisation coupled with texture mapping of raster images was much simpler to implement in hardware compared to direct evaluation of higher order mathematical equations. Thus more complex shapes have to be converted into the basic primitives by \emph{tesselation}, in order to accommodate and benefit from hardware-accelerated rendering.
 
-Figure~\ref{fig:gfx_pipeline} shows how a traditional graphics pipeline processes the data. The input comes in the form of vertices which can carry multiple attributes, such as vertex coordinate, texture coordinate and colour. The pipeline itself also has a set of attributes which represent its state. The state governs the processing of the input data and can be modified by the drawing commands. It includes important processing information, such as the vertex transformation matrix and the type of primitive for the current set of vertices.
+Figure~\ref{fig:gfx_pipeline} shows how a traditional graphics pipeline processes the data. The input comes in the form of vertices which can carry multiple attributes, such as vertex coordinates, texture coordinates and colour. In a 3D application, the vertices carry specialised attributes required by the lighting equations, such as surface normals. The pipeline itself also has a set of attributes which represent its state. The state governs the processing of the input data and can be modified by the drawing commands. It includes important processing information, such as the vertex transformation matrix, the type of primitive for the current set of vertices, and the material and light parameters.
 
-The pipeline consists of three stages. The vertex transformation stage applies the transformation matrix defined in the pipeline state to the vertex coordinates. The primitive assembly stage combines the transformed vertices into one of the three basic primitive types, as defined in the pipeline state. The rasterization stage determines the pixels covered by each primitive and computes the interpolated values of the vertex attributes at every pixel. Finally, the resulting colour at each pixel is written into a temporary memory block called \emph{framebuffer}. When the entire image of one frame is constructed, the colour data is copied from the framebuffer into the actual display raster.
+The pipeline consists of three stages. The vertex transformation stage applies the transformation matrix to the vertex coordinates. If lighting is enabled this stage performs lighting calculations and uses the result to determine the vertex colour. The primitive assembly stage combines the transformed vertices into one of the three basic primitive types, as defined in the pipeline state. The rasterization stage determines the pixels covered by each primitive and computes the interpolated values of the vertex attributes at every pixel. Finally, the resulting colour at each pixel is written into a temporary raster within the block of memory called \emph{framebuffer}. When the entire image of one frame is constructed, the colour values are copied from the temporary raster into the actual display raster.
 
 \subsection{Texture Lookups}
 
-There are two common ways of determining the final pixel colour. As shown in Figure~\ref{fig:gfx_pipeline}, a colour value can be attached to each vertex as one of its attributes and interpolated across the primitive. Alternatively, every vertex can have a texture coordinate attached. The interpolated texture coordinate at every pixel is used to perform a lookup into a texture image, residing in video memory of the GPU. The lookup applies the colour of the texture at the point of texture coordinate to the pixel and might include some form of filtering to smooth out the colour values of adjacent pixels. This process is illustrated in Figure~\ref{fig:texturing}. A group of textured triangles small enough to approximate a curved surface can give an impression of the texture image being mapped onto an arbitrary surface.
+There are two common ways of determining the final pixel colour. As shown in Figure~\ref{fig:gfx_pipeline}, the colour attribute of the vertex or the colour obtained as a result of the lighting equations can be directly interpolated across the primitive. Alternatively, every vertex can have a texture coordinate attribute assigned. The interpolated texture coordinate at every pixel is used to perform a lookup into a texture image, residing in video memory of the GPU. The lookup applies the colour of the texture at the point of texture coordinate to the pixel and might include some form of filtering to smooth out the colour values of adjacent pixels. This process is illustrated in Figure~\ref{fig:texturing}. A group of textured triangles small enough to approximate a curved surface can give an impression of the texture image being mapped onto an arbitrary curved surface.
 
-Due to parallel architecture of the rasterization stage, every pixel is processed separately and the order of coordinates in the texture lookups is arbitrary. In order to be usable as a texture an image must offer efficient random access to its data. To this end, raster images have long been used for texturing. If the colour tuples are laid out in row-major order, the following simple equation suffices to compute the memory location of a pixel within the raster data:
+Due to parallel architecture of the rasterization stage, every pixel is processed separately and the order of coordinates in the texture lookups is arbitrary. In order to be usable as a texture an image must offer efficient random access to its data. To this end, raster images have long been used for texturing. If the colour values are laid out in row-major order, the following simple equation suffices to compute the memory location of a pixel within the raster data, corresponding to the given image space coordinate:
 \[ L = Y * W + X \]
-where \emph{(X,Y)} is the texture coordinate and \emph{W} is the width of raster image in pixels. Once the memory location is computed, the texture colour can be read directly from the raster grid and applied to the pixel being textured.
+where \emph{(X,Y)} is the texture coordinate and \emph{W} is the width of raster image in pixels. Once the memory location is computed, the colour value can be read directly from the raster grid and applied to the pixel being textured.
 
-On the other hand, vector images do not offer such a simple and efficient colour lookup. As discussed in previous sections, the colour at an arbitrary coodinate in image space depends on the winding number of that point with regards to every shape in the image. Furthermore, every winding number in turn depends on every segment of the respective shape. In order to use vector images as textures some preprocessing needs to be done, to construct a more efficient lookup structure.
+On the other hand, vector images do not offer such a simple and efficient colour lookup. As discussed in previous sections, the colour at an arbitrary coordinate in image space of a vector image depends on the winding number of that point with regards to every shape in the image. Furthermore, the winding number in turn depends on every segment of the respective shape. In order to use vector images as textures some preprocessing needs to be performed, to construct a more efficient lookup structure.
 
 \begin {figure}
 	\centering
-	\includegraphics [width=0.7\columnwidth]{figures/texturing}
-	\caption {The process of texturing maps the texture image onto a curved surface by interpolating the texture coordinate at every vertex across the primitive and performing a lookup at every pixel.}
+	\includegraphics [width=0.6\columnwidth]{figures/texturing}
+	\caption {The process of texturing maps a texture image onto a curved surface by interpolating texture coordinates across the primitive and performing a lookup at every pixel.}
 	\label {fig:texturing}
 \end {figure}
 
 \subsection{GPU Programmability}
-The GPU has evolved enormously in terms of speed and programmability, however the fundamental approach has not changed much, with the triangle rasterisation unit remaining a core built-in component. Nonetheless, the increase in programmability has enabled new ways of using the GPU.
+The GPU has evolved enormously in terms of speed and programmability since it first appeared. However the fundamental approach has not changed significantly, with the triangle rasterisation unit remaining a core built-in component. Nonetheless, the increase in programmability has enabled new ways of using the GPU.
 
-Firstly, programmers can now write code that defines the behaviour of certain stages of the rendering pipeline as exposed by the graphics APIs such as OpenGL and DirectX. The pipeline is still based around points, lines and triangles being the basic rasterizable primitives, however, custom programs for processing of vertices and pixels can be uploaded onto the hardware. Figure~\ref{fig:gl_pipeline} shows the graphics pipeline as presented by the OpenGL API. The programmable stage processing the vertices is called a \emph{vertex shader}, while the pixel processing stage is named a \emph{fragment shader}.
+Firstly, programmers can now write code that defines the behaviour of certain stages of the rendering pipeline as exposed by the graphics APIs such as OpenGL and DirectX. The pipeline is still based around points, lines and triangles being the basic rasterizable primitives, however, custom programs for processing of vertices and pixels can be uploaded onto the hardware. Figure~\ref{fig:gl_pipeline} shows the programmable version of the traditional graphics pipeline as presented by the OpenGL API. The programmable stage processing the vertices is called a \emph{vertex shader}, while the pixel processing stage is named a \emph{fragment shader}. In addition, new programmable stages are being introduced, not present in the traditional fixed pipeline. The recently introduced \emph{geometry shader} allows custom processing on the level of entire primitives, after the primitive assembly stage.
 
-The programmable stages can be used to enhance the traditional pipeline by implementing arbitrary transformation of the vertex input or alternative means of computing the output pixel colour. More importantly, they allow the use of GPU processor as a generic processing unit, an approach known as \emph{General Purpose GPU processing} (GPGPU). Arbitrary input data can be encoded into vertices and then decoded and processed by the shading program. The ability to perform texture lookups at any point in a shading program allows arbitrary data encoded into textures to be read directly from the GPU memory. The option to render into the raster of a texture image, rather than the display raster, allows generic output to be encoded and written out as colour values.
+The programmable stages can be used to improve traditional rendering approaches. For example, a user-defined vertex displacement program can modify the input coordinates on a per-pixel basis, rather than by a unique transformation matrix. A specialised fragment program can perform per-pixel lighting, thus achieving higher realism of the rendered image. A custom geometry shader can discard the input primitives and generate new ones, therefore dynamically adjusting the object geometry.
 
-Moreover, new programming interfaces such as CUDA and OpenCL have emerged that expose the GPU hardware as a generic multi-core computing device. This approach is known as \emph{GPU Computing}. These APIs  are completely devoid of any graphics-related paradigms, so there is no need to encode the data into graphical entities such as vertices and textures. Nonetheless, the results of the computation are often used for graphical purposes or end up being visualised via traditional rendering pipeline.
+More generally, the programmability of the GPU is allowing it to be used as a general processing unit, an approach known as \emph{General Purpose GPU processing} (GPGPU). Arbitrary input data can be encoded into vertices and then decoded and processed by a shader program. The ability to perform texture lookups at any point in a shader program allows arbitrary data encoded into textures to be read directly from the GPU memory. The option to render into the raster of a texture image, rather than the display raster, allows generic output to be encoded and written out as colour values.
+
+Furthermore, new programming interfaces such as CUDA \cite{Cuda} and OpenCL \cite{OpenCL} have emerged that expose the GPU hardware as a generic multi-core computing device for computationally intensive tasks. This approach is known as \emph{GPU Computing}. These APIs  are completely devoid of any graphics-related paradigms, so there is no need to encode the data into graphical entities such as vertices and textures. Nonetheless, the results of the computation are often used for graphical purposes or end up being visualised via traditional rendering pipeline.
 
 \begin {figure}
 	\centering
-	\includegraphics [width=1.0\columnwidth]{figures/gl_pipeline}
+	\includegraphics [width=0.8\columnwidth]{figures/gl_pipeline}
 	\caption {OpenGL rendering pipeline. Programmable parts are coloured in blue.}
 	\label {fig:gl_pipeline}
 \end {figure}
 
-\subsection{Recent Advances in the GPU Architecture}
+\subsection{Recent Advances in GPU Architecture}
 \label{sec:recent}
 
-With the increasing use of the GPU for general-purpose computation and the shift of the CPU towards multi-core computing, the architectures of the two processing units are starting to converge. On the one hand, the number of cores on the CPU increases with every generation. On the other hand, recent GPU architectures include features that were previously only found on a CPU.
+With the increasing use of GPUs for general-purpose computation and the shift of the CPU towards multi-core computing, the architectures of the two processing units are in some ways starting to converge. On the one hand, the number of cores on the CPU increases with every generation. On the other hand, recent GPU architectures include features that were previously only found on a CPU.
 
-NVIDIA has recently released a new generation of GPUs code named \emph{Fermi}. Among other improvements, the new architecture introduced two very important features for our research: global memory space and a unified cache architecture. A new set of 64-bit addressing instructions allows C-style memory pointers to be used in shader code. The cache architecture ensures coherence in memory accesses between multiple shading threads, allowing data structures in the global memory to be shared between parallel executions of shader code. Concurrent access can be synchronised via atomic operations, which received a significant performance improvement compared to previous GPU generations.
+NVIDIA has recently released a new generation of GPUs named \emph{Fermi} \cite{Fermi}. Among other improvements, the new architecture introduced two very important features for our research: global memory space and a unified cache architecture. A new set of 64-bit addressing instructions allows C-style memory pointers to be used in shader code. The cache architecture ensures coherence in memory accesses between multiple shading threads, allowing data structures in the global memory to be shared between parallel executions of shader code. Concurrent access can be synchronised via atomic operations, which received a significant performance improvement compared to previous GPUs.
 
-Although these changes are mostly targeted towards GPU Computing, some of them are exposed to the graphics pipeline as well. The OpenGL API allows new features to be brought in through third party \emph{extensions}, which accelerate the evolution of the interface even before the new features are approved as part of the core API. With the new architecture, NVIDIA also released extensions to OpenGL which take advantage of the new GPU capabilities in order to increase the versatility of the graphics pipeline.
+Although these changes are mostly targeted towards GPU Computing, some of them are exposed to the graphics pipeline as well. The OpenGL API allows new features to accessed through third party \emph{extensions}, which accelerate the evolution of the API even before the new features are approved as part of the core function set. With the new architecture, NVIDIA also released extensions to OpenGL which take advantage of the new GPU capabilities in order to increase the versatility of the graphics pipeline.
 
-Extensions {\tt EXT\_shader\_image\_load\_store} and {\tt NV\_shader\_buffer\_store} add new features to the shading language, allowing writes to arbitrary locations in the GPU memory. The former achieves this by allowing a texture image to be bound as a new type of rendering target, thus limiting the valid write locations to a subset of memory. The latter enhances the shading language with C-style pointers, through which the memory can be read or written at any location within the global memory space. Both extensions add new built-in functions to the language to perform atomic read and write operations.
+Of particular relevance to our approach are the extensions {\tt EXT\_shader\_image\_load\_store} and {\tt NV\_shader\_buffer\_store} which add new features to the shading language, allowing writes to arbitrary locations in the GPU memory. The former achieves this by allowing a texture image to be bound as a new type of rendering target, thus limiting the valid write locations to a subset of memory. The latter enhances the shading language with C-style pointers, through which the memory can be read or written at any location within the global memory space. Both extensions add new built-in functions to the language to perform atomic read and write operations.
 
-The reason these two extensions are so important is they allow more complex data structures to be constructed in the GPU memory. Previously, the output of a fragment shader had a fixed location in the target framebuffer at the coordinate of the respective pixel. With the new memory access functions, a shading program can lay out the data structures in memory much like a typical CPU program would. By using these extensions, our preprocessing implementation can build an efficient vector image lookup structure in parallel from multiple executions of the shading program.
+The reason these two extensions are so important is they allow complex data structures to be constructed in the GPU memory. Previously, the output of a fragment shader had a fixed location in the target framebuffer at the coordinate of the corresponding pixel. With the new memory access functions, a shading program can lay out the data structures in memory much like a typical CPU program would. By using these extensions, our preprocessing algorithm can build an efficient vector image lookup structure in parallel from multiple executions of the shader program.
 
 \section {Previous Work}
 
-\begin {figure} [ht]
+\begin {figure} [h]
 	\centering
 	\subfigure[Subdivision]{\label{fig:DeCasteljau}\includegraphics [width=0.3\columnwidth] {figures/DeCasteljau}}
 	\hspace{2.0cm}
@@ -226,29 +231,30 @@ The reason these two extensions are so important is they allow more complex data
 	\label {fig:cpu}
 \end {figure}
 
-In a typical CPU implementation of a vector graphics renderer, every spline is first approximated by linear segments. Intermediate points on the curved segments can be obtained in a straightforward manner by curve evaluation at a fixed step. Alternatively, the process can be optimised via adaptive algorithms which generate less points in the straight regions and more points in the regions of higher curvature. Common approaches include forward difference evaluation and recursive subdivision based on de Casteljau algorithm. The interior of the resulting piecewise linear polygon is triangulated according to the fill-rule applied to the shape. Finally, the triangles are rasterized into the framebuffer. Figure~\ref{fig:cpu} illustrates the process of subdivision and tesselation.
+In a typical CPU implementation of a vector graphics renderer, every spline is first approximated by linear segments. Intermediate points on the curved segments can be obtained in a straightforward manner by curve evaluation at a fixed interval. Alternatively, the process can be optimised via adaptive algorithms which generate less points in the straight regions and more points in the regions of higher curvature. Common approaches include forward difference evaluation and recursive subdivision based on de Casteljau algorithm. The interior of the resulting piecewise linear polygon is triangulated according to the fill-rule applied to the shape. Finally, the triangles are rasterized into the framebuffer. Figure~\ref{fig:cpu} illustrates the process of subdivision and tesselation.
 
-Unfortunately, the known curve subdivision and polygon triangulation algorithms are expensive in terms of required processing time compared to the final rendering of the image. Moreover, they are inherently sequential, which means they cannot be efficiently parallelised and therefore cannot take advantage of the GPU.
+Unfortunately, the curve subdivision and polygon triangulation algorithms are expensive in terms of required processing time compared to the final rendering of the image. Moreover, they are inherently sequential, which means they cannot be efficiently parallelised and therefore cannot take advantage of the GPU.
 
 \subsection {Forward Rendering Approaches}
 
-\cite{LoopBlinn05} have developed an approach where the implicit equation of quadratic curves is evaluated directly in the fragment shader to perform inside/outside classification. They start by observing that ``the implicit form of any rational parametric quadratic curve is a conic section; and that any conic section is the projected image of a single canonical parabola." They show that a quadratic curve with control points $(0,0)$, $(0.5,0)$, and $(1,1)$ plots the quadratic curve $v = u^2$ exactly. They assign these points as the $(u,v)$ texture coordinates to the vertices of a triangle. Suppose the vertices are the control points of another arbitrary quadratic curve. As the hardware interpolates the texture coordinates across the triangle, it essentially projects the quadratic curve from texture space into screen space. They determine if the pixel is inside or outside the curve by evaluating $f(u,v) = u^2 - v$ in a pixel shader program. If $f(u,v) < 0$ then the pixel is inside the curve, otherwise it is outside.
-
-\begin {figure}
+\begin {figure} [t]
 	\centering
-	\includegraphics [width=0.5\columnwidth] {figures/loop_blinn}
+	\includegraphics [width=0.45\columnwidth] {figures/loop_blinn}
 	\caption {A quadratic curve is projected from texture space into screen space via coordinate interpolation. (Image source: \cite{LoopBlinn05}) }
 	\label {fig:loop_blinn}
 \end {figure}
 
-\begin {figure}
+\begin {figure} [t]
 	\centering
-	\includegraphics [width=0.5\columnwidth] {figures/kokojima}
+	\includegraphics [width=0.45\columnwidth] {figures/kokojima}
 	\caption {Stencil-buffer rendering technique based on Jordan Curve theorem avoids the need for triangulation of shape interior. (Image source: \cite{Kokojima06}) }
 	\label {fig:kokojima}
 \end {figure}
 
-This removes the need for curve subdivision, but the interior of the shape still needs to be triangulated. \cite{Kokojima06} combine the projective rendering of the quadratic curves with a stencil polygon rendering technique. First, an arbitrary pivot point is selected. For each linear segment a triangle is drawn with one of its vertices at the pivot point and the other two at the vertices of the line segment. For each quadratic segment a triangle is drawn between the pivot point and the first and the last control point, skipping the middle control point. Additionally, a triangle is drawn for each quadratic curve, discarding the pixels based on the projective technique of \cite{LoopBlinn05}. For every pixel drawn, the binary value in the stencil buffer is inverted. After all the triangles have been drawn, the values in the stencil buffer essentially represent the crossing number for every point as if the intersection ray was cast towards the pivot point. This allows the pixels in the framebuffer to be coloured according to even-odd fill rule.
+
+\cite{LoopBlinn05} present an approach where the implicit equation of quadratic curves is evaluated directly in the fragment shader to perform inside/outside classification. They start by observing that ``the implicit form of any rational parametric quadratic curve is a conic section; and that any conic section is the projected image of a single canonical parabola.'' They show that a quadratic B\'{e}zier curve with control points $(0,0)$, $(0.5,0)$, and $(1,1)$ plots the quadratic equation $v = u^2$ exactly. They assign these points as the $(u,v)$ texture coordinates to the vertices of a triangle. Suppose the vertices are the control points of another arbitrary quadratic curve. As the hardware interpolates the texture coordinates across the triangle, it essentially projects the quadratic curve from texture space into screen space. They determine if the pixel is inside or outside the curve by evaluating $f(u,v) = u^2 - v$ in a pixel shader program. If $f(u,v) < 0$ then the pixel is inside the curve, otherwise it is outside.
+
+This approach removes the need for curve subdivision, but the interior of the shape still needs to be triangulated. \cite{Kokojima06} combine the projective rendering of the quadratic curves with a stencil polygon rendering technique. First, an arbitrary point $P$ is selected among the segment control points. For each linear segment a triangle is drawn with one of its vertices at $P$ and the other two at the vertices of the line segment. For each quadratic segment a triangle is drawn between $P$ and the first and the last control point, skipping the middle control point. Additionally, a triangle is drawn for each quadratic curve, discarding the pixels based on the projective technique of \cite{LoopBlinn05}. For every pixel drawn, the binary value in the stencil buffer is inverted. After all the triangles have been drawn, the values in the stencil buffer essentially represent the crossing number for every point as if the intersection ray was cast towards $P$. This allows the pixels in the framebuffer to be coloured according to even-odd fill rule.
 
 \subsection {Random Access Rendering by Image Localisation}
 
@@ -259,20 +265,20 @@ This removes the need for curve subdivision, but the interior of the shape still
 	\label {fig:nehab_hoppe}
 \end {figure}
 
-The algorithms described so far enable efficient rendering of animated vector graphics. However, they are strongly based on the traditional primitive rasterization pipeline. As such, the rendered image can only be transformed by transforming the vertices of the triangle primitives before they are rasterized. Instead, we are aiming to use vector images as textures and map them onto other surfaces. As discussed previously, texture lookups follow a random access scheme, where the pixel colours are queried at an arbitrary coordinate within the image space in an arbitrary order. To achieve this, we need to construct an efficient lookup structure, that will allow us to evaluate the winding number of any point with respect to any vector shape from within the fragment shader.
+The algorithms described so far enable rendering of vector graphics to be accelerated by the GPU without the need for subdivision or tesselation. However, they are strongly based on the traditional primitive rasterization pipeline. As such, the rendered image can only be transformed by transforming the vertices of the triangle primitives before they are rasterized. Instead, we are aiming to use vector images as textures and map them onto other surfaces. As discussed previously, texture lookups require a random access scheme, where the pixel colours are queried in an arbitrary order at arbitrary locations in the image space. To achieve this capability, we need to construct an efficient lookup structure, that will allow evaluation of the winding number of any point with respect to any vector shape from within the fragment shader.
 
-\cite{NehabHoppe08} presented an approach to this problem that localises the vector image representation to coarse lattice cells in a preprocessing step implemented as a sequential CPU algorithm. Each cell contains a localised description of the graphics primitives it overlaps. This information is encoded into a GPU texture and interpreted by the fragment shader. For every fragment, the vector data is read from the lattice cell that the texture coordinate falls in. The winding number is calculated using the ray-casting intersection technique, but thanks to the localisation, only the segments overlapping the cell need to be considered. They observe that increasing the lattice resolution decreases the number of spline segments to intersect per pixel, as long as the detail in the image is fairly uniform. This in turn reduces the rendering time and increases the achievable rendering framerate. However, they find that the preprocessing takes too long for real-time use which prevents their approach to be used with animated images.
+\cite{NehabHoppe08} presented an approach to this problem which localises vector image representation to coarse lattice cells in a preprocessing step implemented as a sequential CPU algorithm. Each lattice cell contains a localised description of the graphics primitives it overlaps. This information is encoded into a GPU texture and interpreted by the fragment shader. For every fragment, the vector data is read from the lattice cell that the texture coordinate falls in. The winding number is calculated using the ray-casting intersection technique, but thanks to the localisation, only the segments overlapping the cell need to be considered. They report that increasing the lattice resolution decreases the number of spline segments to intersect per pixel, as long as the detail in the image is fairly uniform. This in turn reduces the rendering time and increases the rendering framerate. However, they find that the preprocessing takes too long for real-time applications which prevents their approach to be used with animated images.
 
-The above approach represents an important paradigm shift in vector image processing. Previous rendering techniques used vector image data as direct input to the traditional pipeline. Control vertices of vector curves were represented as vertices of basic graphics primitives and the primitive rasterization stage was cleverly enhanced with the specialized shading programs to perform the inside / outside classification of every pixel. In contrast, the image localisation approach does not represent any part of the vector image data using traditional graphics pipeline entities. A GPU texture is used merely as a memory buffer to contain encoded vector data and the fragment shader is used as a generic unit of computation that performs a look up into the encoded data and emits the resulting pixel color.
+The above approach represents an important paradigm shift in vector image processing. Previous rendering techniques used vector image data as direct input to the traditional pipeline. Control vertices of vector curves were represented as vertices of basic graphics primitives and the primitive rasterization stage was cleverly enhanced with the specialized shading programs to perform the inside/outside classification of every pixel. In contrast, the image localisation approach does not represent any part of the vector image data using traditional graphics pipeline entities. A GPU texture is used merely as a memory buffer to contain encoded vector data and the fragment shader is used as a generic unit of computation that performs a look up into the encoded data and emits the resulting pixel color.
 
 \section {Our Approach}
 \label{sec:our}
 
 In order to extend the random access rendering technique by \cite{NehabHoppe08} to animated vector images, the preprocessing step that constructs the lookup data structure needs to be accelerated. Their localised image representation is organized into grid cells, so it lends itself directly to a parallel encoding algorithm, meaning it can benefit from the parallel architecture of the GPU.
 
-However, their "fast lattice-clipping algorithm" involves certain steps which cannot be efficiently parallelised. To preserve the winding number within a cell, their algorithm creates auxiliary segments on the right boundary of each cell. The direction of the auxiliary segments affects the resulting winding number and depends on the segments in other cells, to the right of the cell in question. Therefore, for every segment crossing a cell, the winding number needs to be integrated into the cells to its left. The dependency of each cell on the contents of other cells makes it challenging to devise a parallel localisation algorithm.
+However, their ``fast lattice-clipping algorithm'' involves certain steps which cannot be efficiently parallelised. To preserve the winding number within a cell, their algorithm creates additional linear segments on the right boundary of each cell. We thus refer to the resulting lookup structure as \emph{auxiliary-segment} (AS) image representation. The presence and direction of the auxiliary segments affects the winding number of the points in the cell and depends on the segments in other cells, to the right of the cell in question. Therefore, for every segment crossing a cell, the winding number needs to be integrated into the cells to its left. The dependency of each cell on the contents of other cells makes it challenging to devise a parallel localisation algorithm.
 
-To avoid bottlenecks in our approach, we develop an alternative pivot-point (PP) localised image representation in an effort to minimise inter-cell dependencies and allow our encoding algorithm to take maximum advantage of the parallel GPU architecture. We also present an adjusted rendering algorithm that utilizes PP image representation for texture mapping.
+To avoid bottlenecks in our approach, we develop an alternative \emph{pivot-point} (PP) localised image representation in an effort to minimise inter-cell dependencies and allow our encoding algorithm to take maximum advantage of the parallel GPU architecture. We also present an adjusted rendering algorithm that utilizes our image representation for texture mapping.
 
 \subsection {Pivot-Point Localised Image Representation}
 
@@ -293,7 +299,7 @@ To avoid bottlenecks in our approach, we develop an alternative pivot-point (PP)
 \end {minipage}
 \end {figure}
 
-There are two main requirements for our localised representation: (i) it must exhibit a high degree of localisation to allow efficient random-access and (ii) it must be obtainable via some process which can achieve a high degree of parallelism. Like \cite{NehabHoppe08}, we create a coarse grid across the original vector image. However, our approach differs in the contents of the grid cells. 
+There are two main requirements for our localised representation: (i) it must exhibit a high degree of localisation to allow efficient random-access and (ii) it must be obtainable by an algorithm which can achieve a high degree of parallelism. Like \cite{NehabHoppe08}, we create a coarse grid across the original vector image. However, our approach differs in the contents of the grid cells. 
 
 We start by observing that the winding number of any region in a vector shape can be determined by a single crossing of an edge, as long as the winding number of another adjacent region is known. As shown in Figure~\ref{fig:ray_our} it is possible to move from one region to another, adjusting the winding number according to the direction of the crossing edge and thus finding the winding number of every region.
 
@@ -313,8 +319,6 @@ The following sections describe our encoding and rendering algorithms in detail.
 
 \subsection {Encoding Algorithm}
 
-%\subsubsection {Input Setup}
-%
 Our encoding algorithm requires minimal setup by the CPU which includes the following steps:
 
 \begin {enumerate}
@@ -327,11 +331,11 @@ Compute the memory size of the main grid and object sub-grids to format the grid
 \item
 Upload grid info, object info, and segment control points into the GPU memory.
 \end {enumerate}
-These steps need to be repeated whenever the input data changes, but we found the time taken by this setup to be negligibly small compared to the rest of the algorithm.
+
 
 \subsubsection {Algorithm Overview}
 
-A coarse description of our encoding algorithm is given in pseudocode below, excluding the details that differ between the auxiliary-segment and pivot-point representations:
+A high level description of our encoding algorithm is given in pseudocode below, excluding the details that differ between the auxiliary-segment and pivot-point representations:
 
 \begin {code}
 \begin {verbatimtab}[3]
@@ -388,18 +392,20 @@ loop
 \end {verbatimtab}
 \end {code}
 
-\begin {figure} 
-	\centering
-	\includegraphics[width=0.8\columnwidth] {figures/parallelism}
-	\caption {Various programmable stages of the graphics pipeline collaborate in encoding of a quadratic curve segment.}
-	\label {fig:parallelism}
-\end {figure}
+\pagebreak
 
 Despite the output of the encoding stage being used for rendering purposes, the encoding algorithm itself cannot be modeled directly by the traditional graphics pipeline. Like \cite{NehabHoppe08}, we use a GPGPU approach rather than a fully generic GPU Computing approach, meaning the steps of the algorithm are expressed in terms of graphical constructs. The main reason for this choice is that the GPU Computing is still rapidly evolving, with tools maturing, and that to our knowledge the GPGPU approaches still perform better.
 
 In the GPU implementation of the algorithm the steps of every loop actually run in parallel. The input data is encoded into graphical primitives and the drawing calls are issued so as to trigger multiple invocations of the shader programs for every element of the input. Parallelism is achieved by distributing the computation between multiple shader processors on the GPU with regard to segments, control points or grid cells. Figure~\ref{fig:parallelism} illustrates the distribution of computation across the various programmable stages of the graphics pipeline. Vertex shaders process multiple control points, geometry shaders find the bounding box of multiple segments, and fragment shaders encode the segments into multiple cells covered by their bounding box in parallel.
 
 Every top-level loop in our encoding algorithm represents one graphics pipeline pass. The input required by every pass is represented with the smallest number of vertices that define the respective geometry, in order to minimize the data transfer between the main and the GPU memory. Objects are represented by a line primitive extending from the minimum point to the maximum point of the object's bounding box. Straight line segments are represented directly by a line primitive. Quadratic curve segments are represented by a triangle which encodes the three control points of the curve. Note that these input primitives are not processed by the graphics pipeline in the traditional way. Instead, we are taking advantage of the programmable stages in the pipeline to decode the input data, process it as needed, and then encode the results so they can be passed to the next stage of the pipeline.
+
+\begin {figure} 
+	\centering
+	\includegraphics[width=0.75\columnwidth] {figures/parallelism}
+	\caption {Various programmable stages of the graphics pipeline collaborate in encoding of a quadratic curve segment.}
+	\label {fig:parallelism}
+\end {figure}
 
 Thanks to recent advances in graphic hardware, described in Section~\ref{sec:recent}, the algorithm can interact with the intermediate and output memory buffers directly. However, due to multiple levels of cache the concurrent memory access might result in memory discrepancies as seen by the processors from different processing groups. To avoid this, an explicit function call needs to be issued to synchronise the memory across all the processors. It is important to note that none of the points of memory synchronisation are inside a loop, which means the number of required synchronisations is fixed and does not increase with the complexity of the input data. 
 
@@ -448,7 +454,8 @@ The stream node insertion algorithm is given in the following pseudocode:
 %\end{code}
 where $L$ is the atomic counter holding the total stream length, $S$ is the size of the new node as number of stream words, $I$ is the stream index of the new node in the list, $H$ is the atomic counter holding the stream index of the last node in the list, and $P$ is the stream index of the previous node in the list. Function \emph{atomicAdd} adds the given value to an atomic counter and function \emph{atomicExchange} swaps the value of the atomic counter with the new value. Both atomic functions return the old value read prior to the modification.
 
-Atomic counters $L$ and $H$ are the key to synchronisation of the encoding process between multiple shading processors. These counters are stored in the intermediate buffers shown on Figure~\ref{fig:data_buffers}. The synchronisation buffer holds a single global stream length counter $L$, while every cell of the grid buffer holds a list head counter $H$. The grid buffer is formatted so as to contain the cells of the main grid, followed by the cells of every object grid in row major order. The size of an object grid is determined by the bounding box of the respective object, aligned to the cells of the main grid.
+
+Atomic counters $L$ and $H$ are the key to synchronisation of the encoding process between multiple shading processors. These counters are stored in the intermediate buffers shown in Figure~\ref{fig:data_buffers}. The synchronisation buffer holds a single global stream length counter $L$, while every cell of the grid buffer holds a list head counter $H$. The grid buffer is formatted so as to contain the cells of the main grid, followed by the cells of every object grid in row major order. The size of an object grid is determined by the bounding box of the respective object, aligned to the cells of the main grid.
 
 Since all the data is interleaved in a single stream buffer, only one $L$ counter is used. On the contrary, the use of multiple $H$ counters allows us to construct multiple linked lists simultaneously. The segment encoding pass uses atomic counter $H$ in the grid of the object to which the current segment belongs. The object encoding pass uses the atomic counter $H$ in the main grid, but reads the $H$ counter from the respective object grid cell and stores it into the object header node.
 
@@ -476,9 +483,9 @@ The computation of these intersections is parallelised by triggering additional 
 
 \subsubsection{Auxiliary-Segment Localisation}
 
-The AS version of our encoding algorithm is a GPU implementation of the "fast lattice-clipping algorithm" used by \cite{NehabHoppe08} with minor adjustments in order to improve the parallelism. The segment encoding pass of our algorithm performs the cell boundary intersection tests and computes the change  $\Delta{h}$ in winding number. The object header encoding pass performs insertion of auxiliary vertical segments based on the final winding number sum $h$.
+The AS version of our encoding algorithm is essentially a parallel version of the ``fast lattice-clipping algorithm'' as described in \cite{NehabHoppe08} with minor adjustments to improve the parallelism. The segment encoding pass of our algorithm performs the cell boundary intersection tests and computes the change  $\Delta{h}$ in winding number. The object header encoding pass performs insertion of auxiliary vertical segments based on the final winding number sum $h$.
 
-We use the same boundary conditions to insert auxiliary vertical segments on the right edges of the cells. As discussed at the start of Section~\ref{sec:our}, computation of the running sum of $\Delta{h}$ itself cannot be efficiently parallelised. However, within our parallel algorithm we can still gain some advantage by not calculating it at once in the object encoding pass. Instead, we update the sum across all the cells in the same row to the left of the current cell in the segment encoding pass as soon as an intersection with a segment is found. Although more work is done in total this way, our approach proved to work better in parallel, achieving a noticeable speed-up.
+We use the same boundary conditions to insert auxiliary vertical segments on the right edges of the cells. As discussed at the start of Section~\ref{sec:our}, computation of the running sum of $\Delta{h}$ itself cannot be efficiently parallelised. However, within our parallel algorithm we can still gain some advantage by not calculating it at once in the object encoding pass. Instead, we update the sum across all the cells in the same row to the left of the current cell in the segment encoding pass as soon as an intersection with a segment is found. Although more work is done in total this way, it proved to work better in parallel, achieving a noticeable speed-up.
 
 The reason for this is that the complexity of the segment encoding pass is much higher than the complexity of the final object header encoding pass. Since the $\Delta{h}$ is read and written concurrently from multiple shaders, it needs to be accessed through atomic operations. The result of every atomic operation needs to be synchronised between the local caches of multiple shading processor groups. Due to the higher complexity, there is more time between invocations of the segment encoding shader to perform the synchronisation, before the result needs to be read by another invocation, so the impact on the performance of the entire rendering pass is much lower.
 
@@ -494,7 +501,7 @@ The lookup process begins by transforming the image space texture coordinate int
 
 Every line and quadratic curve node is tested for intersection and the winding number updated when a valid intersection is found. If the final winding number classifies the point as inside the shape according to the fill rule in use, the colour of the shape is returned, otherwise the current fragment is discarded.
 
-Note that the segments in the cell stream might belong to multiple shapes. The encoding algorithm only discards segments from a cell when it is entirely occluded by another shape, so a particular point might still be determined to be inside two different shapes. Since the shapes in the stream are sorted back to front, the color of the last occluding shape overwrites the previous one, but only if it is fully opaque. When a semi-transparent shape is encountered, the colour is blended with the current value.
+Note that the segments in the cell stream might belong to multiple shapes. The encoding algorithm only discards segments from a cell when entirely occluded by another shape, so a particular point might still be determined to be inside two different shapes. Since the shapes in the stream are sorted back to front, the color of the last occluding shape overwrites the previous one, but only if it is fully opaque. When a semi-transparent shape is encountered, the colour is blended with the current value.
 
 \subsubsection {Antialiasing}
 
@@ -502,7 +509,7 @@ As discussed in \cite{NehabHoppe08} a localised image representation offers addi
 
 However, we found that this approach only works correctly when the transformation from the screen space into texture space is known within the fragment shader performing the lookup and the samples of a pixel actually fall into the same localisation cell. This is only the case when the image is being rendered onto a flat surface or under known texture coordinate perturbation and not when the image is being mapped onto an arbitrary surface under perspective transformation. In the latter case, adjacent samples of the same pixel might fall onto a different primitive of the textured object and require a lookup from a different grid cell.
 
-To overcome these issues, we resorted to using the multi-sampling approach which has a good support in the modern hardware, and evaluate the texture lookup at every sample. This approach is completely generic and offers correct antialiasing in every scenario, but cannot take advantage of the potential optimisations described above.
+To overcome these issues, we resorted to using a multi-sampling approach, which has good support in modern hardware, and evaluate the texture lookup at every sample. This approach is completely generic and offers correct antialiasing in every scenario, but cannot take advantage of the potential optimisations described above.
 
 \section {Results and Analysis}
 
@@ -513,13 +520,13 @@ The goal of our experiments was to test the performance of every stage in our im
 \begin {figure} [b!]
 	\centering
 	\includegraphics[width=0.8\columnwidth] {figures/screenshots}
-	\caption {Tiger and text vector images used in our tests. On the left, the image rendered onto a flat surface. On the right, the image mapped onto a curved surface of a cylinder.}
+	\caption {Tiger and text vector images used in our tests. On the left, the images rendered onto a flat surface. On the right, the images mapped onto a curved surface of a cylinder.}
 	\label {fig:screenshots}
 \end {figure}
 
-Two different images were used in our experiments: the tiger image, which has long been the traditional subject of benchmarking for vector graphics, as well as a block of text containing variable numbers of glyphs. Both images are shown in Figure~\ref{fig:screenshots}.
+Two images were used in our experiments: the tiger image, which has long been the traditional subject of benchmarking for vector graphics, as well as a block of text containing variable numbers of glyphs. Both images are shown in Figure~\ref{fig:screenshots}.
 
-The tiger image features many larger and smaller shapes of high complexity. For this reason, it was particularly good for testing the effect of lattice resolution on the encoding and rendering performance. Moreover, the shapes occluding each other presented a good test for the part of our encoding algorithm which discards segments from a cell when they are entirely occluded by another shape in front.
+The tiger image features many larger and smaller shapes of high complexity. For this reason, it is particularly good for testing the effect of grid resolution on the encoding and rendering performance. Moreover, the shapes occluding each other present a good test for the part of our encoding algorithm which discards segments from a cell when they are entirely occluded by another shape in front.
 
 The text image served a different purpose. It was mainly used to see how the encoding and rendering performance scales with the amount of input data. The glyphs of the text are fairly spread out and do not occlude each other. The details are thus regularly spread across the grid, eliminating the unfavorable scenario of unbalanced stream lengths between the grid cells. It is also easy to control the amount of data by adding or removing characters from the text.
 
@@ -541,13 +548,6 @@ In the following sections we analyse the results obtained in every experiment.
 
 \subsection {Experiment \#1: Encoding Performance}
 
-\begin {figure} [h]
-	\centering
-	\includegraphics[width=0.6\columnwidth] {figures/graph_grid_encode}
-	\caption {Encoding speed as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
-	\label {fig:graph_grid_encode}
-\end {figure}
-
 As seen in Figure~\ref{fig:graph_grid_encode} both parallel GPU encoding approaches performed significantly better than the sequential CPU approaches, offering 2 to 3 times increase in encoding speed. Even at higher grid resolutions, when the CPU performance starts dropping below rate of 30 frames per second, the GPU encoding remains well above the interactive threshold.
 
 According to our expectations, the CPU was faster at encoding the AS representation, while the GPU encoding performed better with the PP representation. Maintaining the auxiliary segment counter is computationally simpler compared to the calculation of ray-curve intersections at pivot points, thus resulting in faster sequential execution. However, as previously discussed, this same step reduces the efficiency of our parallel approach when the AS representation is used.
@@ -556,27 +556,34 @@ Surprisingly, though, the difference in GPU performance between the PP and AS re
 
 \subsection {Experiment \#2: Rendering Performance}
 
-\begin {figure} [h]
+\begin {figure} [p]
+	\centering
+	\includegraphics[width=0.6\columnwidth] {figures/graph_grid_encode}
+	\caption {Encoding speed as a function of grid resolution for the tiger image in Figure~\ref{fig:screenshots}.}
+	\label {fig:graph_grid_encode}
+\end {figure}
+
+\begin {figure} [p]
 	\centering
 	\includegraphics[width=0.6\columnwidth] {figures/graph_grid_render}
-	\caption {Rendering speed as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
+	\caption {Rendering speed as a function of grid resolution for the tiger image in Figure~\ref{fig:screenshots}.}
 	\label {fig:graph_grid_render}
 \end {figure}
 
-Figure~\ref{fig:graph_grid_render} plots the rendering speed as a function of lattice resolution. At higher grid resolutions the random-access rendering approach performed more than twice as fast as the traditional forward rendering approach. Due to lower number of segments per cell, our PP localised representation achieved additional 25\% speedup compared to the AS representation.
+\begin {figure} [p]
+	\centering
+	\includegraphics[width=0.6\columnwidth] {figures/graph_grid_encode_render}
+	\caption {Encoding + rendering speed as a function of grid resolution for the tiger image in Figure~\ref{fig:screenshots}.}
+	\label {fig:graph_grid_encode_render}
+\end {figure}
+
+Figure~\ref{fig:graph_grid_render} plots the rendering speed as a function of grid resolution. At higher grid resolutions the random-access rendering approach performed more than twice as fast as the traditional forward rendering approach. Due to lower number of segments per cell, our PP localised representation achieved additional 25\% speedup compared to the AS representation.
 
 Obviously, the forward rendering approach is not affected by the grid resolution, so it shows as a constant value. With the random-access rendering approach, the framerate sharply increases at lower resolutions but eventually reaches a plateau. At that point the resolution of the grid becomes high enough that further increase in resolution does not result in any significant decrease in the number of segments per cell. Obviously, the resolution at which this occurs varies with the level of detail in the image, so the optimal resolution depends on the image being rendered.
 
 It could be worth investigating techniques to estimate the optimal grid resolution for a given image in advance, in order to achieve the optimal rendering performance. Unfortunately, our time limits did not permit us to investigate such techniques.
 
 \subsection {Experiment \#3: Encoding + Rendering Performance}
-
-\begin {figure} [h]
-	\centering
-	\includegraphics[width=0.6\columnwidth] {figures/graph_grid_encode_render}
-	\caption {Encoding + rendering speed as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
-	\label {fig:graph_grid_encode_render}
-\end {figure}
 
 The differences in encoding and rendering performance observed in experiments \#1  and \#2 clearly affect the combined performance of the two stages, as shown in Figure~\ref{fig:graph_grid_encode_render}. Our parallel GPU encoding approach which performed significantly better than the sequential CPU approach in the encoding stage, in combination with our PP localised representation which performed best in the rendering stage, achieved the highest combined performance of the two stages.
 
@@ -586,14 +593,28 @@ For the parallel encoding approach, the peak in performance occurred at the reso
 
 This could be achieved by further improving the encoding speed to perform better at higher resolutions. Alternatively, the same could be achieved by improving the gains in rendering speed with the increase in grid resolution. As future work, it might worth investigating the use of irregular spatial data structures, to achieve better distribution of image detail across the localised lookup structure and improve the rendering performance gains.
 
-\subsection {Experiment \#4: Performance Scaling with Raster Size}
-
-\begin {figure} [h]
+\begin {figure} [p]
 	\centering
-	\includegraphics[width=0.6\columnwidth] {figures/graph_size_render}
+	\includegraphics[width=0.5\columnwidth] {figures/graph_size_render}
 	\caption {Rendering speed as a function of actual image screen size for the tiger image in Figure~\ref{fig:screenshots}.}
 	\label {fig:graph_size_render}
 \end {figure}
+
+\begin {figure} [p]
+	\centering
+	\includegraphics[width=0.5\columnwidth] {figures/graph_glyphs_render}
+	\caption {Rendering speed as a function of number of glyphs for the text image in Figure~\ref{fig:screenshots}.}
+	\label {fig:graph_glyphs_render}
+\end {figure}
+
+\begin {figure} [p]
+	\centering
+	\includegraphics[width=0.55\columnwidth] {figures/graph_grid_memory}
+	\caption {Total memory size of the stream data as a function of grid resolution for the tiger image in Figure~\ref{fig:screenshots}.}
+	\label {fig:graph_grid_memory}
+\end {figure}
+
+\subsection {Experiment \#4: Performance Scaling with Raster Size}
 
 Figure~\ref{fig:graph_size_render} plots the framerate as a function of image size on the screen after scaling. The higher the scaling factor, the more pixels in the target raster are covered by the image. This affects the two rendering approaches in a different way.
 
@@ -605,13 +626,6 @@ Unfortunately, we couldn't measure performance reliably at larger screen sizes, 
 
 \subsection {Experiment \#5: Performance Scaling with Geometric Complexity}
 
-\begin {figure} [h]
-	\centering
-	\includegraphics[width=0.6\columnwidth] {figures/graph_glyphs_render}
-	\caption {Rendering speed as a function of number of glyphs for the text image in Figure~\ref{fig:screenshots}.}
-	\label {fig:graph_glyphs_render}
-\end {figure}
-
 In this experiment, we rendered the text image, while changing the number of characters in the text, and therefore the number of vector glyph objects in the image. As opposed to image screen size in experiment \#4, the increasing geometric complexity of the image noticeably affected the forward rendering technique. Figure~\ref{fig:graph_glyphs_render} shows an exponential decrease in forward rendering framerate as the number of glyphs increases.
 
 When testing the random-access rendering technique, we took advantage of the adaptable capabilities of the localised image representation. We adjusted the grid resolution dynamically according to the number of characters in the text, so that each glyph object covered approximately a 2$\times$2 block of cells. The random-access approach significantly outperformed the forward rendering approach at any number of characters, achieving a 3 to 4 times factor of improvement in rendering speed.
@@ -620,18 +634,11 @@ It is also interesting to note that the performance of random-access encoding an
 
 \subsection {Experiment \#6: Memory Requirements}
 
-\begin {figure} [h]
-	\centering
-	\includegraphics[width=0.55\columnwidth] {figures/graph_grid_memory}
-	\caption {Total memory size of the stream data as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
-	\label {fig:graph_grid_memory}
-\end {figure}
+Figure~\ref{fig:graph_grid_memory} shows the total memory size of the cell stream data for the tiger image, at various grid resolutions. This is the memory space taken by the localised representation of the image which needs to be kept in the GPU memory for continuous rendering.
 
-Figure~\ref{fig:graph_grid_memory} shows the total memory size of the cell stream data, at various grid resolutions. This is the effective size of the encoded vector image residing in the GPU memory which needs to be kept for continuous rendering.
+Despite the similarity in approach, the memory sizes measured in our experiment are generally higher than those of \cite{NehabHoppe08}. This is mainly due to two important design choices. Firstly, the straightforward approximation of cubic curves with a fixed number of four quadratic segments greatly increases the total number of segments in the encoded image. This could be much improved by implementing a more flexible adaptive approximation. Secondly, due to the parallelism in our cell stream construction, the segments might be encoded into the stream out of order, so the end and start point of two consecutive segments cannot be shared and needs to be encoded twice in the node of each segment.
 
-Despite the similarity in approach, the memory requirements of our implementation are generally higher than those achieved by \cite{NehabHoppe08}. This is mainly due to two important design choices. Firstly, the straightforward approximation of cubic curves with a fixed number of four quadratic segments greatly increases the total number of segments in the encoded image. This could be much improved by implementing a more flexible adaptive approximation. Secondly, due to the parallelism in our cell stream construction, the segments might be encoded into the stream out of order, so the end and start point of two consecutive segments cannot be shared and needs to be encoded twice in the node of each segment.
-
-Nonetheless, considering the diminished gains in rendering performance at large lattice resolutions, the memory requirements of our encoded vector image do not gravely exceed those of a traditional raster image. The pixel size of the tiger vector image used in this experiment at 1:1 scale is approximately 500$\times$500 pixels. At this size a 32-bit raster image requires roughly 1MB of memory space. At the grid size of 120$\times$120 cells, when the rendering performance with the same image reaches a plateau, our pivot-point representation barely exceeds that memory size. Of course, this comparison is not necessarily meaningful, as the two image representations are qualitatively different, but at least puts the results of this experiment in perspective.
+Nonetheless, considering the diminished gains in rendering performance at large grid resolutions, the memory requirements of our encoded vector image do not gravely exceed those of a traditional raster image. The pixel size of the tiger vector image used in this experiment at 1:1 scale is approximately 500$\times$500 pixels. At this size a 32-bit raster image requires roughly 1MB of memory space. At the grid size of 120$\times$120 cells, when the rendering performance with the same image reaches a plateau, our pivot-point representation barely exceeds that memory size. Of course, this comparison is not necessarily meaningful, as the two image representations are qualitatively different, but at least puts the results of this experiment in perspective.
 
 It is also worth noting, that the memory size of our pivot-point representation grows significantly slower than the memory size of the auxiliary-segment representation, since the fully opaque cells do not require an auxiliary segment to mark them as interior.
 
@@ -639,25 +646,25 @@ It is also worth noting, that the memory size of our pivot-point representation 
 
 The localisation of a vector image to cells of a regular grid reduces the number of segments to be intersected in one texture lookup as long as the level of detail is fairly uniform across the image. However, if the image has large areas of low detail and a few clusters of very high detail, a regular grid becomes less efficient at dividing the detail among the cells. In the worst case, increasing the resolution of the grid will not improve the rendering performance at all, if the details remain within one single cell.
 
-This issue could be solved by using an irregular spatial data structure, such as a kd-tree. In that regard, our pivot point representation has an additional advantage over auxiliary-point representation of being more generically defined - there are no dependencies between adjacent cells, only a cell and its pivot point. Our localised representation can be easily generalised from rectangular cells to any type of irregular convex regions. The only requirement is that a ray cast from the pivot point towards an arbitrary point within the region cannot intersect its boundary, which would make the winding number depend on the intersections with the segments in the adjacent region. This condition is satisfied in any convex region.
+This issue could be solved by using an adaptive spatial data structure, such as a kd-tree. In that regard, our pivot point representation has an additional advantage over auxiliary-point representation of being more generically defined - there are no dependencies between adjacent cells, only a cell and its pivot point. Our localised representation can be easily generalised from rectangular cells to any type of irregular convex regions. The only requirement is that a ray cast from the pivot point towards an arbitrary point within the region cannot intersect its boundary, which would make the winding number depend on the intersections with the segments in the adjacent region. This condition is satisfied in any convex region.
 
 Due to our time constraints, the investigation of such an approach was left for future work.
 
 \subsection {Non-traditional Applications}
 
-Besides the traditional advantage of scalability, a localised vector image representation offers additional advantage in the form of efficient random-access which allows alternative non-traditional applications.
+Besides the traditional advantage of scalability, a localised vector image representation offers additional advantage in the form of efficient random-access which broadens the range of applications.
 
-Figure~\ref{fig:screenshots} shows the tiger and text images used as textures and mapped onto the surface of a cylinder under perspective transformation. Such applications were previously limited to bitmap textures with the artifacts introduced at larger levels of zoom limiting the flexibility of use. Instead, vector textures could be used in many ways to enhance the user experience in desktop applications as well as virtual worlds.
+Figure~\ref{fig:screenshots} shows the tiger and text images used as textures and mapped onto the surface of a cylinder under perspective transformation. Such applications were previously limited to raster images with the artifacts introduced at larger levels of zoom limiting the flexibility of use. Instead, vector textures could be used in many ways to enhance the user experience in desktop applications as well as virtual worlds.
 
 Vector-based glyphs and other user interface elements can retain sharpness when rendered on a slanted or curved surface at any scale. This allows for much greater flexibility and creativity in user interface design and facilitates development of 3-dimensional desktop interfaces, which can lead to general improvement in screen estate management.
 
-In virtual worlds, bitmap textures suffer from artifacts when the viewer approaches the textured surface. In order to retain the image clarity, a sufficiently large bitmap has to be used to still read well at the closest distance it is expect to be observed from. This leads to suboptimal memory usage when a textured object is observed from afar. Traditionally, to work around this issue, multiple versions of the same image of various sizes would be used and loaded depending on the viewer's position. However, when a vector texture is used, a single version of the image needs to be loaded in memory to be able to render the textured object with maximum clarity regardless of the viewer's position.
+In virtual worlds, raster textures suffer from artifacts when the viewer approaches the textured surface. In order to retain the image clarity, a sufficiently large image has to be used to still display well at the closest distance it is expect to be observed from. This leads to suboptimal memory usage when a textured object is observed from afar. Traditionally, to work around this issue, multiple versions of the same image of various sizes would be used and loaded depending on the viewer's position. In contrast, when a vector texture is used, a single version of the image needs to be loaded in memory to be able to render the textured object with maximum clarity regardless of the viewer's position.
 
 \section {Conclusion and Future Work}
 
 We have presented a preprocessing and rendering technique for vector images which takes advantage of the parallel architecture of the GPU and allows fast random access rendering of animated vector images. We have shown that our parallel GPU approach outperforms the sequential CPU approach in the preprocessing step, and that our random-access rendering technique in most cases significantly outperforms the traditional forward rendering technique.
 
-We have also presented an alternative pivot-point vector image representation, which performs slightly better and requires significantly less memory compared to the auxiliary-segment representation, while approximately matching the memory requirements of a traditional raster image. It retains the traditional vector image advantage of scalability over raster images, while offering additional advantage in the form of efficient texture mapping, allowing alternative non-traditional applications.
+We have also presented an alternative pivot-point vector image representation, which allows slightly faster encoding and rendering, but grows significantly slower in memory size compared to auxiliary-segment representation, while approximately matching the memory size of a traditional raster image. It retains the traditional vector image advantage of scalability over raster images, while offering additional advantage in the form of efficient texture mapping, allowing alternative non-traditional applications.
 
 Our experiments showed that the optimal level of image localisation depends on the geometric complexity of the image, and therefore an estimation algorithm based on the input data is required in order to choose the optimal grid resolution for our localised image representation.
 
@@ -682,6 +689,7 @@ Generalisation of pivot-point representation to irregular spatial data structure
 
 \newpage
 \bibliographystyle{alpha}
+%\bibliographystyle{apalike}
 \bibliography{bibliography}
 
 \end{document}
