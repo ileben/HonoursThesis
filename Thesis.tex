@@ -78,9 +78,9 @@ In general, this thesis investigates the following questions:
 \item
 How to efficiently accelerate vector image localisation using the parallel architecture of the GPU?
 \item
-Is there an alternative localised vector image representation, more suitable to parallel encoding and rendering?
-\item
 What are the performance gains of a parallel preprocessing algorithm compared to a sequential CPU implementation?
+\item
+Is there an alternative localised vector image representation, more suitable to parallel encoding and rendering?
 \item
 What degree of vector data localisation provides an optimal balance between preprocessing and rendering time?
 \item
@@ -525,17 +525,21 @@ The text image served a different purpose. It was mainly used to see how the enc
 
 Firstly, we wanted to compare the performance of our parallel GPU encoding algorithm against a sequential CPU approach. Even though modern CPUs include multiple processing cores, our CPU implementation only uses one thread of execution to execute the loops of our encoding algorithm iteratively. Of course, our parallel algorithm could probably be implemented with multiple threads on a CPU, but the purpose of this test was to compare a parallel processing approach against a sequential approach. As a matter of fact, it might be interesting to compare the performance of two parallel implementations, one on the CPU and one on the GPU, but this was left for future work.
 
-We also wanted to see which of the two localised image representations can be encoded faster with the CPU and the GPU approach and how the grid resolution affects the encoding performance. Our first experiment included measurement of achievable encoding rate (i.e. number of executions per second) for the tiger image, at various levels of grid resolution.
+We also wanted to see which of the two localised image representations can be encoded faster with the CPU and the GPU approach and how the grid resolution affects the encoding performance. Our experiment \#1 includes measurement of achievable encoding rate (i.e. number of executions per second) for the tiger image, at various levels of grid resolution.
 
-Secondly, we wanted to test the random-access rendering performance using the two different image representations (PP and AS) and compare it to the performance of a traditional forward rendering approach. Our second experiment involved measurement of achievable rendering rate at various levels of grid resolution, for the same tiger image.
+Secondly, we wanted to test the random-access rendering performance using the two different image representations (PP and AS) and compare it to the performance of a traditional forward rendering approach. Experiment \#2 involves measurement of achievable rendering rate at various levels of grid resolution, for the same tiger image.
 
-Next, we wanted to simulate a scenario where the vector image is animated, in which case the encoding needs to be repeated on every frame. Unfortunately, our time limits did not permit us to implement the actual process of the animation of a vector image. Nonetheless, we could still evaluate the effective performance by measuring the combined encoding and rendering framerate. Again, we used the tiger image and repeated the experiment at various grid resolutions, in order to find the optimal balance between the encoding and rendering speed.
+Next, we wanted to simulate a scenario where the vector image is animated, in which case the encoding needs to be repeated on every frame. Unfortunately, our time limits did not permit us to implement the actual process of the animation of a vector image. Nonetheless, we could still evaluate the effective performance by measuring the combined encoding and rendering framerate. Again, we used the tiger image and repeated experiment \#3 at various grid resolutions, in order to find the optimal balance between the encoding and rendering speed.
 
-The first three experiments test the performance as a function of grid resolution. In order to see how other factors affect the performance, we designed two more experiments. The fourth experiment measures the rendering speed of the tiger image at various levels of zoom, to show how the performance scales with the number of coloured pixels in the resulting raster. For the random-access rendering approach this means more texture lookups. For the forward rendering approach this means larger area of rasterization.
+The first three experiments test the performance as a function of grid resolution. In order to see how other factors affect the performance, we designed two more experiments. Experiment \#4 measures the rendering speed of the tiger image at various levels of zoom, to show how the performance scales with the number of coloured pixels in the resulting raster. For the random-access rendering approach this means more texture lookups. For the forward rendering approach this means larger area of rasterization.
 
-Lastly, we used the text image to show how the rendering performance scales with the increasing geometric complexity. We measured the framerate of the random-access rendering and the forward-rendering approach while adding and removing characters from the text. In order to expose the geometric adaptability of the random-access approach, we adjusted the grid resolution every time the number of characters changed, so as to maintain a steady number of segments per cell.
+We used the text image in experiment \#5 to show how the rendering and encoding performance scales with the increasing geometric complexity. We measured the framerate of the random-access rendering and the forward-rendering approach while adding and removing characters from the text. In order to expose the geometric adaptability of the random-access approach, we adjusted the grid resolution every time the number of characters changed, so as to maintain a steady number of segments per cell. We also tested performance scaling with geometry in an animated image scenario, by measuring the combined performance of encoding and rendering with the random-access approach.
 
-\subsection {Encoding and Rendering Performance}
+Finally, in experiment \#6 we measured the resulting memory size of the encoded PP and AS image representations at various grid resolutions. Since a vector image allows rendering at any level of scale, it is hard to perform any meaningful comparison in memory size with a raster image. Still, to put the memory size in perspective, we included a comparison with the memory requirement of a raster image of the same pixel size as the vector image at 1:1 scale.
+
+In the following sections we analyse the results obtained in every experiment.
+
+\subsection {Experiment \#1: Encoding Performance}
 
 \begin {figure} [h]
 	\centering
@@ -544,12 +548,28 @@ Lastly, we used the text image to show how the rendering performance scales with
 	\label {fig:graph_grid_encode}
 \end {figure}
 
+As seen in Figure~\ref{fig:graph_grid_encode} both parallel GPU encoding approaches performed significantly better than the sequential CPU approaches, offering 2 to 3 times increase in encoding speed. Even at higher grid resolutions, when the CPU performance starts dropping below rate of 30 frames per second, the GPU encoding remains well above the interactive threshold.
+
+According to our expectations, the CPU was faster at encoding the AS representation, while the GPU encoding performed better with the PP representation. Maintaining the auxiliary segment counter is computationally simpler compared to the calculation of ray-curve intersections at pivot points, thus resulting in faster sequential execution. However, as previously discussed, this same step reduces the efficiency of our parallel approach when the AS representation is used.
+
+Surprisingly, though, the difference in GPU performance between the PP and AS representation was not very large. This hints that the atomic operations might still be the bottleneck of our parallel approach, even with the PP representation. Hopefully, with further improvements in hardware, the effect of the atomic operations on the overall performance will be reduced.
+
+\subsection {Experiment \#2: Rendering Performance}
+
 \begin {figure} [h]
 	\centering
 	\includegraphics[width=0.6\columnwidth] {figures/graph_grid_render}
 	\caption {Rendering speed as a function of lattice resolution for the tiger image in Figure~\ref{fig:screenshots}.}
 	\label {fig:graph_grid_render}
 \end {figure}
+
+Figure~\ref{fig:graph_grid_render} plots the rendering speed as a function of lattice resolution. At higher grid resolutions the random-access rendering approach performed more than twice as fast as the traditional forward rendering approach. Due to lower number of segments per cell, our PP localised representation achieved additional 25\% speedup compared to the AS representation.
+
+Obviously, the forward rendering approach is not affected by the grid resolution, so it shows as a constant value. With the random-access rendering approach, the framerate sharply increases at lower resolutions but eventually reaches a plateau. At that point the resolution of the grid becomes high enough that further increase in resolution does not result in any significant decrease in the number of segments per cell. Obviously, the resolution at which this occurs varies with the level of detail in the image, so the optimal resolution depends on the image being rendered.
+
+It could be worth investigating techniques to estimate the optimal grid resolution for a given image in advance, in order to achieve the optimal rendering performance. Unfortunately, our time limits did not permit us to investigate such techniques.
+
+\subsection {Experiment \#3: Encoding + Rendering Performance}
 
 \begin {figure} [h]
 	\centering
@@ -558,15 +578,15 @@ Lastly, we used the text image to show how the rendering performance scales with
 	\label {fig:graph_grid_encode_render}
 \end {figure}
 
-As seen in Figure~\ref{fig:graph_grid_encode} our GPU implementation offers significant improvement in encoding performance over the CPU approach. Even at higher grid resolutions, when the CPU performance starts dropping below rate of 30 frames per second, the GPU encoding remains well above the interactive threshold.
+The differences in encoding and rendering performance observed in experiments \#1  and \#2 clearly affect the combined performance of the two stages, as shown in Figure~\ref{fig:graph_grid_encode_render}. Our parallel GPU encoding approach which performed significantly better than the sequential CPU approach in the encoding stage, in combination with our PP localised representation which performed best in the rendering stage, achieved the highest combined performance of the two stages.
 
-It is interesting to see the GPU was faster at performing pivot-point encoding than auxiliary-segment encoding, while the opposite holds for the CPU. The CPU results can be explained by the greater simplicity of maintaining the auxiliary counter compared to the computation of ray-curve intersections at pivot points. On the other hand, that same factor does not seem to affect the GPU encoding, which hints at the atomic operations still being the bottleneck of the approach.
+Similar to the rendering framerate, the combined framerate of the two stages sharply increases at lower resolutions. However, at a certain point the decrease in encoding performance outweighs the gains in the rendering performance and the combined framerate starts to decrease. Both the CPU and the GPU data lines show a clear point at which the balance between encoding and rendering speed is optimal.
 
-Figure~\ref{fig:graph_grid_render} plots the rendering speed as a function of lattice resolution. The framerate sharply increases at lower resolutions and eventually reaches a plateau. At that point the resolution of the grid becomes high enough that further increase in resolution does not result in any significant decrease in the number of segments per cell. This point varies with the level of detail in the image, so the optimal lattice resolution depends on the image being rendered. Again, our pivot-point representation performed faster than auxiliary-segment representation, due to the lower number of segments per-cell.
+For the parallel encoding approach, the peak in performance occurred at the resolution of 60$\times$60 cells. With the same vector image, the rendering performance in experiment \#2 reached a plateau at the resolution of 120$\times$120 cells. Optimally, these two resolutions would coincide, allowing the combined performance to scale with the grid resolution to the point where the rendering performance cannot increase anymore.
 
-We also measured the effective framerate in an animated image scenario, where both encoding and rendering have to be done on each frame. Figure~\ref{fig:graph_grid_encode_render} shows the results at various lattice resolutions. Both the CPU and the GPU data lines show a clear point at which the balance between encoding and rendering speed was optimal. This point mainly depends on the slower of the two components. In our case, faster GPU performance in encoding and rendering also results in higher optimal resolution and higher achievable combined framerate over the CPU approach.
+This could be achieved by further improving the encoding speed to perform better at higher resolutions. Alternatively, the same could be achieved by improving the gains in rendering speed with the increase in grid resolution. As future work, it might worth investigating the use of irregular spatial data structures, to achieve better distribution of image detail across the localised lookup structure and improve the rendering performance gains.
 
-\subsection {Performance Scaling}
+\subsection {Experiment \#4: Performance Scaling with Raster Size}
 
 \begin {figure} [h]
 	\centering
@@ -575,6 +595,16 @@ We also measured the effective framerate in an animated image scenario, where bo
 	\label {fig:graph_size_render}
 \end {figure}
 
+Figure~\ref{fig:graph_size_render} plots the framerate as a function of image size on the screen after scaling. The higher the scaling factor, the more pixels in the target raster are covered by the image. This affects the two rendering approaches in a different way.
+
+With the forward rendering approach, a larger scale results in larger triangle primitives, and thus more work for the rasterization stage of the graphics pipeline. Regardless of the scale, the entire geometry of the image always needs to be processed and therefore the load on the vertex transformation and primitive assembly stages remains constant. In the case of the tiger image, the geometric complexity is so high that it significantly outweighed rasterization and there was no noticeable slowdown at larger levels of scale.
+
+On the other hand, the random-access rendering approach behaves more similar to texturing using a raster image; at large enough levels of grid resolution, the geometric complexity is removed from the rendering stage and the number of textured pixels becomes the most significant performance factor. The results in Figure~\ref{fig:graph_size_render} were achieved with a grid resolution of 120$\times$120 cells. Despite the high resolution, the per-pixel cost of performing the lookup into the localised image representation turned out to be higher than that of the traditional forward rendering rasterization, and the framerate noticeably decreased as the image was scaled. At the screen size of 300$\times$300 pixels, the random-access rendering performed at around 1200 frames per second, essentially tripling the forward rendering performance. As the screen size increased towards 900$\times$900 pixels, the random-access rendering speed linearly decreased, eventually matching the forward rendering speed of 400 frames per second.
+
+Unfortunately, we couldn't measure performance reliably at larger screen sizes, as we were limited with the size of our display device. By extrapolating the obtained information, we expect that the forward rendering approach might be more appropriate to use with very large display resolutions, as long as the type of application does not require additional capabilities of random-access rendering.
+
+\subsection {Experiment \#5: Performance Scaling with Geometric Complexity}
+
 \begin {figure} [h]
 	\centering
 	\includegraphics[width=0.6\columnwidth] {figures/graph_glyphs_render}
@@ -582,18 +612,13 @@ We also measured the effective framerate in an animated image scenario, where bo
 	\label {fig:graph_glyphs_render}
 \end {figure}
 
+In this experiment, we rendered the text image, while changing the number of characters in the text, and therefore the number of vector glyph objects in the image. As opposed to image screen size in experiment \#4, the increasing geometric complexity of the image noticeably affected the forward rendering technique. Figure~\ref{fig:graph_glyphs_render} shows an exponential decrease in forward rendering framerate as the number of glyphs increases.
 
-We compared our random access rendering technique against the traditional forward rendering as described in \cite{Kokojima06} by rendering the vector image at various levels of scale. Figure~\ref{fig:graph_size_render} plots the framerate as a function of image screen size after scaling.
-
-With the forward rendering approach, the entire geometry of the image needs to be processed on every frame. For this reason, the geometric complexity is by far the most important factor affecting the framerate. In fact, the complexity of the tiger image is so high, that it governed the performance of traditional rendering entirely and there was no noticeable slowdown at larger levels of scale.
-
-On the other hand, the random-access rendering is more alike to bitmap texturing; at large enough levels of lattice resolution, the geometric complexity is removed from the rendering stage and the number of textured pixels becomes the most significant performance factor. However, our random-access rendering performed so much faster in general, that it still achieved a higher framerate than forward rendering even at larger levels of zoom. The results in Figure~\ref{fig:graph_size_render} were achieved with a grid resolution of 120 times 120 cells.
-
-To see the effect of the level of geometric complexity on the two rendering techniques, we used an image containing a block of text using vector glyphs. Figure~\ref{fig:graph_size_render} shows the effective framerate as the number of letters (and therefore glyph objects) in the image increases. For random-access rendering, the lattice resolution was being adjusted dynamically, so that each letter in the text covered roughly a 2 times 2 block of cells. This time, the increasing geometric complexity noticeably affected the forward rendering technique. The framerate of random-access rendering was also decreasing with the number of glyphs, since a larger number of pixels was being coloured. Nonetheless, the random-access technique still greatly outperformed forward rendering.
+When testing the random-access rendering technique, we took advantage of the adaptable capabilities of the localised image representation. We adjusted the grid resolution dynamically according to the number of characters in the text, so that each glyph object covered approximately a 2$\times$2 block of cells. The random-access approach significantly outperformed the forward rendering approach at any number of characters, achieving a 3 to 4 times factor of improvement in rendering speed.
 
 It is also interesting to note that the performance of random-access encoding and rendering combined almost perfectly matched traditional rendering of the text image, which means animated text can be rendered with equal efficiency using both techniques.
 
-\subsection {Memory Requirements}
+\subsection {Experiment \#6: Memory Requirements}
 
 \begin {figure} [h]
 	\centering
@@ -602,26 +627,41 @@ It is also interesting to note that the performance of random-access encoding an
 	\label {fig:graph_grid_memory}
 \end {figure}
 
-Figure~\ref{fig:graph_grid_memory} shows the total memory size of all the cell stream data, at various lattice resolutions. This is the effective size of the encoded vector image residing in the GPU memory which needs to be kept for continuous rendering.
+Figure~\ref{fig:graph_grid_memory} shows the total memory size of the cell stream data, at various grid resolutions. This is the effective size of the encoded vector image residing in the GPU memory which needs to be kept for continuous rendering.
 
 Despite the similarity in approach, the memory requirements of our implementation are generally higher than those achieved by \cite{NehabHoppe08}. This is mainly due to two important design choices. Firstly, the straightforward approximation of cubic curves with a fixed number of four quadratic segments greatly increases the total number of segments in the encoded image. This could be much improved by implementing a more flexible adaptive approximation. Secondly, due to the parallelism in our cell stream construction, the segments might be encoded into the stream out of order, so the end and start point of two consecutive segments cannot be shared and needs to be encoded twice in the node of each segment.
 
-Nonetheless, considering the diminished gains in rendering performance at large lattice resolutions, the memory requirements of our encoded vector image do not gravely exceed those of a traditional bitmap image. As described in the following section, the rendering performance with the same image reaches a plateau around resolution of 120x120 cells. At that grid size our pivot-point representation barely exceeds the memory size of a 32-bit bitmap image of the same pixel size at 1:1 scale, while offering all the advantages of vector image scalability.
+Nonetheless, considering the diminished gains in rendering performance at large lattice resolutions, the memory requirements of our encoded vector image do not gravely exceed those of a traditional raster image. The pixel size of the tiger vector image used in this experiment at 1:1 scale is approximately 500$\times$500 pixels. At this size a 32-bit raster image requires roughly 1MB of memory space. At the grid size of 120$\times$120 cells, when the rendering performance with the same image reaches a plateau, our pivot-point representation barely exceeds that memory size. Of course, this comparison is not necessarily meaningful, as the two image representations are qualitatively different, but at least puts the results of this experiment in perspective.
 
-It is also worth noting, that our pivot-point representation requires significantly less memory than the auxiliary-segment representation, especially at higher grid resolutions, since the fully opaque cells do not require an auxiliary segment to mark them as interior.
-
+It is also worth noting, that the memory size of our pivot-point representation grows significantly slower than the memory size of the auxiliary-segment representation, since the fully opaque cells do not require an auxiliary segment to mark them as interior.
 
 \subsection {Limitations of Our Approach}
 
-Localisation of vector image to cells of a regular grid reduces the number of segments to be intersected in one texture lookup as long as the level of detail is fairly uniform across the image. However, if the image has large areas of low detail and a few clusters of very high detail, a regular grid becomes less efficient at diving the detail among the cells. In the worst case, increasing the resolution of the grid will not improve the rendering performance at all, if the details remain within one single cell.
+The localisation of a vector image to cells of a regular grid reduces the number of segments to be intersected in one texture lookup as long as the level of detail is fairly uniform across the image. However, if the image has large areas of low detail and a few clusters of very high detail, a regular grid becomes less efficient at dividing the detail among the cells. In the worst case, increasing the resolution of the grid will not improve the rendering performance at all, if the details remain within one single cell.
 
 This issue could be solved by using an irregular spatial data structure, such as a kd-tree. In that regard, our pivot point representation has an additional advantage over auxiliary-point representation of being more generically defined - there are no dependencies between adjacent cells, only a cell and its pivot point. Our localised representation can be easily generalised from rectangular cells to any type of irregular convex regions. The only requirement is that a ray cast from the pivot point towards an arbitrary point within the region cannot intersect its boundary, which would make the winding number depend on the intersections with the segments in the adjacent region. This condition is satisfied in any convex region.
 
+Due to our time constraints, the investigation of such an approach was left for future work.
+
+\subsection {Non-traditional Applications}
+
+Besides the traditional advantage of scalability, a localised vector image representation offers additional advantage in the form of efficient random-access which allows alternative non-traditional applications.
+
+Figure~\ref{fig:screenshots} shows the tiger and text images used as textures and mapped onto the surface of a cylinder under perspective transformation. Such applications were previously limited to bitmap textures with the artifacts introduced at larger levels of zoom limiting the flexibility of use. Instead, vector textures could be used in many ways to enhance the user experience in desktop applications as well as virtual worlds.
+
+Vector-based glyphs and other user interface elements can retain sharpness when rendered on a slanted or curved surface at any scale. This allows for much greater flexibility and creativity in user interface design and facilitates development of 3-dimensional desktop interfaces, which can lead to general improvement in screen estate management.
+
+In virtual worlds, bitmap textures suffer from artifacts when the viewer approaches the textured surface. In order to retain the image clarity, a sufficiently large bitmap has to be used to still read well at the closest distance it is expect to be observed from. This leads to suboptimal memory usage when a textured object is observed from afar. Traditionally, to work around this issue, multiple versions of the same image of various sizes would be used and loaded depending on the viewer's position. However, when a vector texture is used, a single version of the image needs to be loaded in memory to be able to render the textured object with maximum clarity regardless of the viewer's position.
+
 \section {Conclusion and Future Work}
 
-We have presented a preprocessing and rendering technique for vector images which takes advantage of the parallel architecture of the GPU and allows fast random access rendering of animated vector images. We have shown that our approach approximately matches the memory requirements of a traditional bitmap image, outperforms the CPU in the preprocessing step and matches or in some cases significantly outperforms the traditional forward rendering technique.
+We have presented a preprocessing and rendering technique for vector images which takes advantage of the parallel architecture of the GPU and allows fast random access rendering of animated vector images. We have shown that our parallel GPU approach outperforms the sequential CPU approach in the preprocessing step, and that our random-access rendering technique in most cases significantly outperforms the traditional forward rendering technique.
 
-Our pivot-point vector image representation performs slightly better and requires significantly less memory compared to the auxiliary-segment representation. It retains the traditional advantage of scalability over bitmap images, while offering additional advantage in terms of efficient texture mapping.
+We have also presented an alternative pivot-point vector image representation, which performs slightly better and requires significantly less memory compared to the auxiliary-segment representation, while approximately matching the memory requirements of a traditional raster image. It retains the traditional vector image advantage of scalability over raster images, while offering additional advantage in the form of efficient texture mapping, allowing alternative non-traditional applications.
+
+Our experiments showed that the optimal level of image localisation depends on the geometric complexity of the image, and therefore an estimation algorithm based on the input data is required in order to choose the optimal grid resolution for our localised image representation.
+
+In an animated image scenario, our approach achieved a combined performance of the preprocessing and rendering stage well above the interactive rate of 30 frames per second with high-detail images, as well as reasonably large sections of text used in typical user interfaces.
 
 Due to time constraints, our implementation does not support all the features of a typical vector image. Moreover, there are areas where alternative approaches could provide further performance gains. Avenues for future work include:
 
@@ -635,20 +675,10 @@ Use of adaptive rather than fixed approximation of cubic segments with quadratic
 \item
 Implementation of efficient ray intersection with cubic segments to avoid approximation entirely and reduce stream memory size
 \item
-Use of heterogeneous data types and alignment of cell stream data structures in GPU memory for more efficient access
+Investigation of optimal grid resolution estimation techniques
 \item
-Generalisation of pivot-point representation to irregular spatial data structures, such as a kd-tree
+Generalisation of pivot-point representation to irregular spatial data structures
 \end {enumerate}
-
-
-\subsection {Non-traditional Applications}
-Besides the traditional advantage of scalability, a localised vector image representation offers additional advantage in the form of efficient random-access which allows alternative non-traditional applications.
-
-Figure~\ref{fig:screenshots} shows the tiger and text images used as textures and mapped onto the surface of a cylinder under perspective transformation. Such applications were previously limited to bitmap textures with the artifacts introduced at larger levels of zoom limiting the flexibility of use. Instead, vector textures could be used in many ways to enhance the user experience in desktop applications as well as virtual worlds.
-
-Vector-based glyphs and other user interface elements can retain sharpness when rendered on a slanted or curved surface at any scale. This allows for much greater flexibility and creativity in user interface design and facilitates development of 3-dimensional desktop interfaces, which can lead to general improvement in screen estate management.
-
-In virtual worlds, bitmap textures suffer from artifacts when the viewer approaches the textured surface. In order to retain the image clarity, a sufficiently large bitmap has to be used to still read well at the closest distance it is expect to be observed from. This leads to suboptimal memory usage when a textured object is observed from afar. Traditionally, to work around this issue, multiple versions of the same image of various sizes would be used and loaded depending on the viewer's position. However, when a vector texture is used, a single version of the image needs to be loaded in memory to be able to render the textured object with maximum clarity regardless of the viewer's position.
 
 \newpage
 \bibliographystyle{alpha}
